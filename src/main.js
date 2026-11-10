@@ -616,6 +616,16 @@ float getLightDiffuse(vec3 worldNormal, vec3 viewDir, vec3 lightDirNorm) {
 // (tools/blender/personaje_editor.py), que llevan el pie clavado al suelo a esa velocidad
 const LADEO = parseFloat(q.get('ladeo') || '1');   // (cuánto se inclina en los giros; ?ladeo=0 lo quita)
 const PASO_MI = { andar: { v: 1.25, pasa: 4 / 3 }, correr: { v: 2.2, pasa: 2.6 / 2.137 } };
+// lo fluido del movimiento (10-11-2026, el usuario: «mejora los movimientos del personaje, más fluidos y naturales»).
+// Medido antes, con la chica de serie: al dar media vuelta el cuerpo giraba 180° en un fotograma; al arrancar, acelerar
+// y frenar, el pie que pisa patinaba de 1,3 a 2,2 m/s (andando, 0,2), porque la animación iba siempre a su paso; y paraba
+// en seco, en 6 cm. Ahora: el cuerpo gira hacia donde va en un tiempo (giro, s), la velocidad sube y baja con algo de
+// peso (inercia, s), la animación va al paso de la velocidad (vandar, vcorrer: lo que avanza cada clip a su paso
+// normal, en m/s) y las mezclas duran más (mezcla, s). Cada uno se puede cambiar en el enlace para probar
+const FLUIDO = { giro: parseFloat(q.get('giro') || '0.11'), inercia: parseFloat(q.get('inercia') || '0.16'), mezcla: parseFloat(q.get('mezcla') || '0.25'),
+  vandar: parseFloat(q.get('vandar') || '1.0'), vcorrer: parseFloat(q.get('vcorrer') || '1.93'), cambio: parseFloat(q.get('cambio') || '1.5'),
+  roce: parseFloat(q.get('roce') || '0.5'), ladeo: parseFloat(q.get('ladeochica') || '0.7'), girotope: parseFloat(q.get('girotope') || '500'),
+  fuerza: parseFloat(q.get('fuerza') || '1.1') };
 muneco.addComponent('anim', { activate: true });
 if (mi) muneco.anim.rootBone = mi.modelo; // (sus huesos cuelgan de su modelo, un nivel más abajo que los de la chica)
 muneco.anim.loadStateGraph({
@@ -624,11 +634,18 @@ muneco.anim.loadStateGraph({
     states: [{ name: 'START' }, { name: 'Quieto', speed: 1 }, { name: 'Andar', speed: mi ? PASO_MI.andar.pasa : 1 }, { name: 'Correr', speed: mi ? PASO_MI.correr.pasa : chica ? 1.35 : 1 } /* (la chica, con la zancada amortiguada: pasos más cortos y más rápidos) */, { name: 'Saltar', speed: chica ? 1.8 : 1 } /* (el salto de captura dura 2,6 s con su impulso y su caída; el del juego, menos) */, { name: 'END' }],
     transitions: [
       { from: 'START', to: 'Quieto', time: 0, priority: 0 },
-      { from: 'Quieto', to: 'Andar', time: mi ? 0.22 : 0.1, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_GREATER_THAN, value: 0 }] },
-      { from: 'Andar', to: 'Quieto', time: mi ? 0.22 : 0.1, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_LESS_THAN_EQUAL_TO, value: 0 }] },
-      { from: 'Andar', to: 'Correr', time: mi ? 0.22 : 0.1, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_GREATER_THAN, value: 1 }] },
-      { from: 'Correr', to: 'Andar', time: mi ? 0.22 : 0.1, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_LESS_THAN, value: 2 }] },
+      // (las mezclas de un paso a otro: con 0,1 s la chica cambiaba de golpe; de quieta a andar, un cuarto de segundo, y de
+      // andar a correr, algo más, que es lo que tarda en cambiar de zancada. FLUIDO.mezcla, ?mezcla=)
+      { from: 'Quieto', to: 'Andar', time: mi ? 0.22 : FLUIDO.mezcla, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_GREATER_THAN, value: 0 }] },
+      { from: 'Andar', to: 'Quieto', time: mi ? 0.22 : FLUIDO.mezcla, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_LESS_THAN_EQUAL_TO, value: 0 }] },
+      { from: 'Andar', to: 'Correr', time: mi ? 0.22 : FLUIDO.mezcla * 1.2, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_GREATER_THAN, value: 1 }] },
+      { from: 'Correr', to: 'Andar', time: mi ? 0.22 : FLUIDO.mezcla * 1.2, priority: 0, conditions: [{ parameterName: 'v', predicate: ANIM_LESS_THAN, value: 2 }] },
       { from: 'ANY', to: 'Saltar', time: 0.1, priority: 0, conditions: [{ parameterName: 'salto', predicate: ANIM_EQUAL_TO, value: true }] },
+      // (al caer, a lo que esté haciendo: antes, siempre a quieta, y de ahí otra vez a andar o a correr)
+      ...(q.get('fluido') !== '0' ? [
+        { from: 'Saltar', to: 'Correr', time: 0.2, priority: 0, exitTime: 0.8, conditions: [{ parameterName: 'v', predicate: ANIM_GREATER_THAN, value: 1 }] },
+        { from: 'Saltar', to: 'Andar', time: 0.2, priority: 0, exitTime: 0.8, conditions: [{ parameterName: 'v', predicate: ANIM_GREATER_THAN, value: 0 }] },
+      ] : []),
       { from: 'Saltar', to: 'Quieto', time: 0.2, priority: 0, exitTime: 0.8 },
       { from: 'Saltar', to: 'Andar', time: 0.2, priority: 0, exitTime: 0.8 },
     ],
@@ -648,9 +665,17 @@ if (mi && !q.get('t')) app.on('update', () => {
   const lv = ctrl.rigidbody.linearVelocity, v = Math.hypot(lv.x, lv.z), paso = { Andar: PASO_MI.andar, Correr: PASO_MI.correr }[muneco.anim.baseLayer?.activeState];
   muneco.anim.speed = paso ? Math.max(0.75, Math.min(1.25, v / (paso.v * mi.escalaCadera / 0.9236))) : 1;
 });
+// (la chica de serie, igual: su andar avanza FLUIDO.vandar m/s a su paso y su correr, FLUIDO.vcorrer; el estado «Correr»
+// ya va a 1,35, así que aquí se le da la parte que falta. Entre 0,35 y 1,6: al arrancar, al frenar y al cambiar de paso)
+if (!mi && chica && !q.get('t') && q.get('fluido') !== '0') app.on('update', () => {
+  const lv = ctrl.rigidbody.linearVelocity, v = Math.hypot(lv.x, lv.z), est = muneco.anim.baseLayer?.activeState;
+  const k = est === 'Andar' ? v / FLUIDO.vandar : est === 'Correr' ? v / (FLUIDO.vcorrer * 1.35) : 1;
+  muneco.anim.speed = Math.max(0.35, Math.min(1.6, k));
+});
 // en los giros, el cuerpo se echa hacia dentro (como quien corre de verdad, y como en el vídeo): lo que pide la
 // curva, velocidad por giro entre la gravedad, hasta 14°, suavizado; desde los pies
-if (mi) {
+const ladeable = mi ? mi.raiz : (chica && q.get('fluido') !== '0' ? muneco.children[0] : null);  // (la chica también, desde el 10-11-2026)
+if (ladeable) {
   let rumbo = null, giro = 0, ladeo = 0;
   app.on('update', (dt) => {
     const f = muneco.forward, r = Math.atan2(f.x, f.z), lv = ctrl.rigidbody.linearVelocity, v = Math.hypot(lv.x, lv.z);
@@ -659,7 +684,9 @@ if (mi) {
     giro += (Math.max(-6, Math.min(6, d / Math.max(dt, 1e-3))) - giro) * k;   // (radianes por segundo, sin los saltos de un giro de golpe)
     const quiere = Math.max(-14, Math.min(14, Math.atan(v * giro / 9.8) * 180 / Math.PI * LADEO));
     ladeo += (quiere - ladeo) * Math.min(1, dt / 0.12);
-    mi.raiz.setLocalEulerAngles(0, 0, ladeo);
+    // (hacia dentro de la curva: con el signo de antes se echaba hacia fuera, medido el 10-11-2026 con la cabeza respecto a
+    // la cadera; la chica, algo menos que el del editor)
+    ladeable.setLocalEulerAngles(0, 0, q.get('fluido') !== '0' ? -ladeo * (mi ? 1 : FLUIDO.ladeo) : ladeo);
   });
 }
 if (mi) app.on('update', (dt) => mi.actualizar(dt, camara)); // (el parpadeo, la mirada y el vaivén del pelo, tras la animación)
@@ -714,16 +741,54 @@ function moverMelena(dt) {
     }
   }
 }
-if (melena.length && q.get('melena') !== '0') app.on('postupdate', moverMelena); // (?melena=0: sin muelles)
+// (en «update», que el motor lanza después de la animación: con «postupdate», que este motor no lanza, la melena no se
+// movía desde hacía tiempo; arreglado el 10-11-2026)
+if (melena.length && q.get('melena') !== '0') app.on(q.get('fluido') !== '0' ? 'update' : 'postupdate', moverMelena); // (?melena=0: sin muelles)
 
 ctrl.addComponent('script');
 const tpc = ctrl.script.create(ThirdPersonController, { properties: {
   camera: camara, characterModel: muneco, jumpForce: 420, speedGround: mi ? 15 * PASO_MI.andar.v / 1.4 : chica ? 15 : 65, sprintMult: mi ? PASO_MI.correr.v / PASO_MI.andar.v : chica ? 2.1 : 1.73, // (la chica anda a 1,4 m/s y corre a 2,9; el personaje del editor, a lo de PASO_MI: la velocidad va con la fuerza)
   cameraDistance: parseFloat(q.get('dist') || planosFoto?.camara?.dist || '4'), cameraHeight: mi ? Math.max(0.7, mi.altura * 0.73) : 1.2 /* (a la altura de cada uno: 1,2 m para 1,65) */, cameraPositionDamping: 0.0005, lookSens: 0.15,
-  invertLookY: true, initialPitch: 12, walkSpeedThreshold: 0.5, jogSpeedThreshold: mi ? 1.75 : chica ? 2.4 : 4,
+  invertLookY: true, initialPitch: 12, walkSpeedThreshold: 0.5, jogSpeedThreshold: mi ? 1.75 : chica ? (q.get('fluido') !== '0' ? FLUIDO.cambio : 2.4) : 4,
+  // (FLUIDO: el cuerpo gira hacia donde va con una constante de tiempo de FLUIDO.giro s (de serie, casi al instante), y la
+  // velocidad sube y baja con FLUIDO.inercia s (de serie, 0,1). El controlador las pide como el resto que queda por
+  // milisegundo; la fuerza, en proporción, para que ande y corra a lo mismo de antes. ?fluido=0: como antes)
+  ...(q.get('fluido') !== '0' ? { modelTurnSmoothing: Math.exp(-1 / (FLUIDO.giro * 1000)), velocityDampingGround: Math.exp(-1 / (FLUIDO.inercia * 1000)) } : {}),
 } });
+if (q.get('fluido') !== '0') {
+  tpc.speedGround *= 0.0995 / FLUIDO.inercia * FLUIDO.fuerza;   // (con la inercia, a la fuerza de antes le falta un 10 %: así anda a 1,1 m/s, como antes)
+  tpc.sprintMult *= parseFloat(q.get('sprint') || '0.915');   // (y corre a 2,6 m/s, como antes: con la fuerza de andar, corría a 2,85)
+  tpc.speedAir = parseFloat(q.get('aire') || '1.2');   // (en el aire apenas se acelera: con lo de serie, 5, iba ganando velocidad hasta 6,7 m/s y caía corriendo)
+  ctrl.rigidbody.friction = FLUIDO.roce;   // (el rozamiento, el de siempre: con menos, frenaba algo más suave pero corría más despacio)
+  // el giro del cuerpo, con un tope de grados por segundo (FLUIDO.girotope): el controlador lo acerca a donde va cada
+  // fotograma en proporción, y en el primero de una media vuelta eran 25° de golpe. Después de los guiones, que es
+  // cuando el controlador ya lo ha puesto
+  let yawSuave = null;
+  app.on('update', (dt) => {
+    if (enRuta) { yawSuave = null; return; }   // (las rutas de medida giran el muñeco por su cuenta)
+    const quiere = tpc._modelYaw; if (quiere === undefined) return;
+    if (yawSuave === null) yawSuave = quiere;
+    let d = quiere - yawSuave; d -= Math.round(d / 360) * 360;
+    const tope = FLUIDO.girotope * dt; yawSuave += Math.max(-tope, Math.min(tope, d));
+    muneco.setLocalEulerAngles(0, yawSuave, 0);
+  });
+}
 let andando = false, enRuta = false; // (enRuta: andando una ruta de medida, sin teclado)
-tpc.on('speed', (b) => { muneco.anim.setInteger('v', b); andando = b > 0; });
+tpc.on('speed', (b) => { if (q.get('fluido') === '0') muneco.anim.setInteger('v', b); andando = b > 0; });
+// (FLUIDO: el paso de la animación (quieta, andar, correr), cada fotograma desde la velocidad, pero solo en el suelo: en
+// el aire coge algo de velocidad y, al caer de un salto andando, salía corriendo un momento. Pasa a correr al llegar a la
+// velocidad de cambio y vuelve a andar un 10 % por debajo, para que no vaya y venga. Y mientras se pulsa una dirección no
+// se para por un bajón de un instante (al caer de un salto, el golpe contra el suelo la frena un momento a 0,5 m/s)
+if (q.get('fluido') !== '0') {
+  let paso = 0;
+  app.on('update', () => {
+    if (enRuta || !tpc._grounded) return;
+    const lv = ctrl.rigidbody.linearVelocity, h = Math.hypot(lv.x, lv.z), c = tpc.jogSpeedThreshold, quiere = tpc._state.axis.lengthSq() > 0;
+    const corre = quiere && tpc._state.shift > 0 && paso === 2;   // (y si va corriendo y sigue con Mayús, tampoco deja de correr por ese bajón)
+    paso = h < tpc.walkSpeedThreshold && !(quiere && h > 0.15) ? 0 : (corre || h >= c * (paso === 2 ? 0.9 : 1)) ? 2 : 1;
+    muneco.anim.setInteger('v', paso);
+  });
+}
 // donde el navegador no deja capturar el ratón (el visor integrado de la app), se gira arrastrando con el botón pulsado,
 // con la misma sensibilidad que con el ratón capturado (lookSens · px) y el picado al revés, como el controlador
 {
