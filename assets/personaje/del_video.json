@@ -1,0 +1,44 @@
+{
+ "fenotipo": {
+  "gender": 1.0,
+  "age": 0.63,
+  "cupsize": 0.55,
+  "firmness": 0.6,
+  "weight": 0.4,
+  "muscle": 0.591,
+  "height": 0.367,
+  "proportions": 0.516
+ },
+ "deslizadores": {
+  "hombros": -0.7,
+  "cintura": 0.212,
+  "caderas": 0.194,
+  "gluteos": 0.5,
+  "barriga": 0.05,
+  "pecho": -0.328,
+  "torso_fondo": 0.2,
+  "caderas_fondo": 0.194,
+  "brazos_grosor": -0.009,
+  "antebrazos": 0.4,
+  "muslos": -0.239,
+  "rodillas": 0.244,
+  "pantorrillas": -0.089
+ },
+ "nombre": "La del vídeo",
+ "tono": [
+  0.85,
+  0.7,
+  0.58
+ ],
+ "ojos": "marron_oscuro",
+ "vello": [
+  0.09,
+  0.06,
+  0.04
+ ],
+ "ropa": {
+  "conjunto": "camiseta_pitillo",
+  "calzado": "zapatillas_blancas",
+  "pelo": "melena_media"
+ }
+}

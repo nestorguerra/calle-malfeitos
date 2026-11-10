@@ -1,0 +1,214 @@
+{
+ "duraciones": {
+  "fondo": 30.0,
+  "vencejos0": 3.0,
+  "vencejos1": 3.0,
+  "vencejos2": 3.0,
+  "vencejos3": 3.0,
+  "vencejos4": 3.0,
+  "vencejos5": 3.0,
+  "gorriones": 20.5,
+  "radio": 46.0,
+  "ladrido": 0.53,
+  "campanada": 6.5,
+  "vuelo_paloma": 2.26,
+  "arrullo0": 4.5,
+  "arrullo1": 4.5,
+  "arrullo2": 5.0,
+  "maullido": 2.2,
+  "motor": 10.0,
+  "tela": 11.5,
+  "paso_baldosa0": 0.3,
+  "paso_baldosa1": 0.3,
+  "paso_baldosa2": 0.3,
+  "paso_baldosa3": 0.3,
+  "paso_baldosa4": 0.3,
+  "paso_baldosa5": 0.3,
+  "paso_asfalto0": 0.26,
+  "paso_asfalto1": 0.26,
+  "paso_asfalto2": 0.26,
+  "paso_asfalto3": 0.26,
+  "paso_asfalto4": 0.26,
+  "paso_asfalto5": 0.26,
+  "paso_asfalto6": 0.26,
+  "paso_asfalto7": 0.26,
+  "paso_bordillo0": 0.26,
+  "paso_bordillo1": 0.26,
+  "paso_bordillo2": 0.26,
+  "paso_bordillo3": 0.26,
+  "paso_bordillo4": 0.26,
+  "paso_bordillo5": 0.26,
+  "paso_bordillo6": 0.26,
+  "paso_bordillo7": 0.26
+ },
+ "pasos": {
+  "baldosa": 6,
+  "asfalto": 8,
+  "bordillo": 8
+ },
+ "vencejos": 6,
+ "arrullos": 3,
+ "muestras": 22050,
+ "paquete": {
+  "arrullo0": [
+   0,
+   99225
+  ],
+  "arrullo1": [
+   100327,
+   99225
+  ],
+  "arrullo2": [
+   200654,
+   110250
+  ],
+  "campanada": [
+   312006,
+   143325
+  ],
+  "fondo": [
+   456433,
+   661500
+  ],
+  "gorriones": [
+   1119035,
+   452025
+  ],
+  "ladrido": [
+   1572162,
+   11752
+  ],
+  "maullido": [
+   1585016,
+   48510
+  ],
+  "motor": [
+   1634628,
+   220500
+  ],
+  "paso_asfalto0": [
+   1856230,
+   5733
+  ],
+  "paso_asfalto1": [
+   1863065,
+   5733
+  ],
+  "paso_asfalto2": [
+   1869900,
+   5733
+  ],
+  "paso_asfalto3": [
+   1876735,
+   5733
+  ],
+  "paso_asfalto4": [
+   1883570,
+   5733
+  ],
+  "paso_asfalto5": [
+   1890405,
+   5733
+  ],
+  "paso_asfalto6": [
+   1897240,
+   5733
+  ],
+  "paso_asfalto7": [
+   1904075,
+   5733
+  ],
+  "paso_baldosa0": [
+   1910910,
+   6615
+  ],
+  "paso_baldosa1": [
+   1918627,
+   6615
+  ],
+  "paso_baldosa2": [
+   1926344,
+   6615
+  ],
+  "paso_baldosa3": [
+   1934061,
+   6615
+  ],
+  "paso_baldosa4": [
+   1941778,
+   6615
+  ],
+  "paso_baldosa5": [
+   1949495,
+   6615
+  ],
+  "paso_bordillo0": [
+   1957212,
+   5733
+  ],
+  "paso_bordillo1": [
+   1964047,
+   5733
+  ],
+  "paso_bordillo2": [
+   1970882,
+   5733
+  ],
+  "paso_bordillo3": [
+   1977717,
+   5733
+  ],
+  "paso_bordillo4": [
+   1984552,
+   5733
+  ],
+  "paso_bordillo5": [
+   1991387,
+   5733
+  ],
+  "paso_bordillo6": [
+   1998222,
+   5733
+  ],
+  "paso_bordillo7": [
+   2005057,
+   5733
+  ],
+  "radio": [
+   2011892,
+   1014300
+  ],
+  "tela": [
+   3027294,
+   253575
+  ],
+  "vencejos0": [
+   3281971,
+   66151
+  ],
+  "vencejos1": [
+   3349224,
+   66150
+  ],
+  "vencejos2": [
+   3416476,
+   66150
+  ],
+  "vencejos3": [
+   3483728,
+   66150
+  ],
+  "vencejos4": [
+   3550980,
+   66150
+  ],
+  "vencejos5": [
+   3618232,
+   66150
+  ],
+  "vuelo_paloma": [
+   3685484,
+   49745
+  ]
+ }
+}

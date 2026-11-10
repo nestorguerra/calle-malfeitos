@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="description" content="Un paseo por la calle Malfeitos de Guareña. Versión de prueba.">
+</head>
+<body>
+<title>Calle Malfeitos</title>
+<style>
+  /* una sola apariencia, oscura, la del juego: el lienzo ocupa toda la ventana y encima van dos rótulos pequeños */
+  :root { --fondo: #111214; --texto: #eeeae2; --velo: rgba(10, 10, 12, .55); color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: var(--fondo); color: var(--texto); overflow: hidden; font: 13px/1.4 -apple-system, system-ui, sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  #hud { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: calc(10px + env(safe-area-inset-left, 0px)); padding: 8px 10px; background: var(--velo); border-radius: 6px; white-space: pre; font-family: ui-monospace, Menlo, monospace; font-size: 12px; pointer-events: none; }
+  #ayuda { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); left: calc(10px + env(safe-area-inset-left, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: fit-content; max-width: calc(100% - 20px); padding: 6px 10px; background: var(--velo); border-radius: 6px; pointer-events: none; opacity: .85; }
+  #carga { position: fixed; inset: 0; display: grid; place-items: center; background: var(--fondo); font-size: 18px; padding-inline: 16px; text-align: center; }
+  #carga[hidden] { display: none; }
+  /* el botón del editor de personajes, arriba a la derecha, con el mismo velo que los rótulos */
+  #personaje { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); padding: 8px 12px; background: var(--velo); color: var(--texto); border: 1px solid rgba(255, 255, 255, .28); border-radius: 6px; font: inherit; cursor: pointer; }
+  #personaje:hover, #personaje:focus-visible { background: rgba(10, 10, 12, .82); border-color: #d9b27c; outline: none; }
+  @media (max-width: 760px) { #personaje { top: calc(52px + env(safe-area-inset-top, 0px)); } } /* (en un móvil, bajo el rótulo de arriba, que llega al borde) */
+</style>
+<script>window.ESCENA_POR_DEFECTO = 'malfeitos_gris';</script>
+<script type="importmap">
+{
+  "imports": {
+    "playcanvas": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.3/build/playcanvas.mjs",
+    "playcanvas/scripts/": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.3/scripts/"
+  }
+}
+</script>
+<canvas id="lienzo"></canvas>
+<div id="hud">cargando…</div>
+<div id="ayuda">WASD andar · Shift correr · Espacio saltar · ratón girar · rueda zoom</div>
+<div id="carga">Cargando la calle Malfeitos…</div>
+<button id="personaje" type="button">Crea tu personaje</button>
+<style>#creditos { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); padding: 6px 10px; background: var(--velo, rgba(10, 10, 12, .55)); color: var(--texto, #eeeae2); border-radius: 6px; font: 12px/1.4 -apple-system, system-ui, sans-serif; text-decoration: none; opacity: .8; z-index: 5; }
+  #creditos:hover, #creditos:focus-visible { opacity: 1; text-decoration: underline; }
+  @media (max-width: 760px) { #creditos { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); } }</style>
+<a id="creditos" href="./creditos.txt" target="_blank" rel="noopener">Créditos</a>
+<script type="module" src="./src/entrada.js"></script>
+</body>
+</html>

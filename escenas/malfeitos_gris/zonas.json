@@ -1,0 +1,281 @@
+{
+ "celda": 200.0,
+ "zonas": [
+  {
+   "clave": "-3_0",
+   "archivo": "zonas/zona_-3_0.glb",
+   "caja": [
+    -472.2,
+    -180.0,
+    -395.8,
+    -80.8
+   ],
+   "lejos": "lejos_-3_0",
+   "caras": 30566
+  },
+  {
+   "clave": "-2_-2",
+   "archivo": "zonas/zona_-2_-2.glb",
+   "caja": [
+    -254.5,
+    197.0,
+    -194.9,
+    285.3
+   ],
+   "lejos": "lejos_-2_-2",
+   "caras": 54493
+  },
+  {
+   "clave": "-2_-1",
+   "archivo": "zonas/zona_-2_-1.glb",
+   "caja": [
+    -370.7,
+    -5.0,
+    -195.8,
+    205.9
+   ],
+   "lejos": "lejos_-2_-1",
+   "caras": 141825
+  },
+  {
+   "clave": "-2_0",
+   "archivo": "zonas/zona_-2_0.glb",
+   "caja": [
+    -405.7,
+    -205.7,
+    -175.6,
+    7.3
+   ],
+   "lejos": "lejos_-2_0",
+   "caras": 161861
+  },
+  {
+   "clave": "-2_1",
+   "archivo": "zonas/zona_-2_1.glb",
+   "caja": [
+    -304.1,
+    -279.1,
+    -197.1,
+    -195.7
+   ],
+   "lejos": "lejos_-2_1",
+   "caras": 33642
+  },
+  {
+   "clave": "-1_-2",
+   "archivo": "zonas/zona_-1_-2.glb",
+   "caja": [
+    -205.3,
+    195.8,
+    8.3,
+    295.6
+   ],
+   "lejos": "lejos_-1_-2",
+   "caras": 121789
+  },
+  {
+   "clave": "-1_-1",
+   "archivo": "zonas/zona_-1_-1.glb",
+   "caja": [
+    -202.7,
+    -5.8,
+    3.4,
+    206.6
+   ],
+   "lejos": "lejos_-1_-1",
+   "caras": 289840
+  },
+  {
+   "clave": "-1_0",
+   "archivo": "zonas/zona_-1_0.glb",
+   "caja": [
+    -224.6,
+    -205.9,
+    3.4,
+    4.1
+   ],
+   "lejos": "lejos_-1_0",
+   "caras": 211742
+  },
+  {
+   "clave": "-1_1",
+   "archivo": "zonas/zona_-1_1.glb",
+   "caja": [
+    -202.7,
+    -251.8,
+    -68.2,
+    -194.9
+   ],
+   "lejos": "lejos_-1_1",
+   "caras": 18371
+  },
+  {
+   "clave": "0_-2",
+   "archivo": "zonas/zona_0_-2.glb",
+   "caja": [
+    -4.4,
+    195.6,
+    204.3,
+    295.7
+   ],
+   "lejos": "lejos_0_-2",
+   "caras": 133744
+  },
+  {
+   "clave": "0_-1",
+   "archivo": "zonas/zona_0_-1.glb",
+   "caja": [
+    -3.3,
+    -9.6,
+    204.7,
+    205.0
+   ],
+   "lejos": "lejos_0_-1",
+   "caras": 271568
+  },
+  {
+   "clave": "0_0",
+   "archivo": "zonas/zona_0_0.glb",
+   "caja": [
+    -3.7,
+    -187.2,
+    203.2,
+    6.6
+   ],
+   "lejos": "lejos_0_0",
+   "caras": 122058
+  },
+  {
+   "clave": "1_-2",
+   "archivo": "zonas/zona_1_-2.glb",
+   "caja": [
+    193.3,
+    198.2,
+    402.4,
+    273.5
+   ],
+   "lejos": "lejos_1_-2",
+   "caras": 65101
+  },
+  {
+   "clave": "1_-1",
+   "archivo": "zonas/zona_1_-1.glb",
+   "caja": [
+    195.3,
+    -1.2,
+    422.8,
+    201.4
+   ],
+   "lejos": "lejos_1_-1",
+   "caras": 180968
+  },
+  {
+   "clave": "1_0",
+   "archivo": "zonas/zona_1_0.glb",
+   "caja": [
+    195.9,
+    -117.5,
+    404.2,
+    1.2
+   ],
+   "lejos": "lejos_1_0",
+   "caras": 17153
+  },
+  {
+   "clave": "2_-2",
+   "archivo": "zonas/zona_2_-2.glb",
+   "caja": [
+    397.2,
+    196.6,
+    603.0,
+    264.1
+   ],
+   "lejos": "lejos_2_-2",
+   "caras": 83806
+  },
+  {
+   "clave": "2_-1",
+   "archivo": "zonas/zona_2_-1.glb",
+   "caja": [
+    380.9,
+    71.5,
+    603.4,
+    201.9
+   ],
+   "lejos": "lejos_2_-1",
+   "caras": 65983
+  },
+  {
+   "clave": "2_0",
+   "archivo": "zonas/zona_2_0.glb",
+   "caja": [
+    396.3,
+    -56.0,
+    448.4,
+    -27.4
+   ],
+   "lejos": "lejos_2_0",
+   "caras": 6020
+  },
+  {
+   "clave": "3_-2",
+   "archivo": "zonas/zona_3_-2.glb",
+   "caja": [
+    596.7,
+    196.7,
+    781.9,
+    257.9
+   ],
+   "lejos": "lejos_3_-2",
+   "caras": 54274
+  },
+  {
+   "clave": "3_-1",
+   "archivo": "zonas/zona_3_-1.glb",
+   "caja": [
+    595.3,
+    64.8,
+    801.1,
+    202.4
+   ],
+   "lejos": "lejos_3_-1",
+   "caras": 19385
+  },
+  {
+   "clave": "4_-2",
+   "archivo": "zonas/zona_4_-2.glb",
+   "caja": [
+    811.4,
+    194.8,
+    834.3,
+    209.7
+   ],
+   "lejos": "lejos_4_-2",
+   "caras": 11
+  },
+  {
+   "clave": "4_-1",
+   "archivo": "zonas/zona_4_-1.glb",
+   "caja": [
+    799.1,
+    8.7,
+    1025.2,
+    209.7
+   ],
+   "lejos": "lejos_4_-1",
+   "caras": 3092
+  },
+  {
+   "clave": "5_-1",
+   "archivo": "zonas/zona_5_-1.glb",
+   "caja": [
+    971.2,
+    19.3,
+    1088.4,
+    140.0
+   ],
+   "lejos": "lejos_5_-1",
+   "caras": 1705
+  }
+ ]
+}
