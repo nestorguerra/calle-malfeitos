@@ -106,11 +106,10 @@ const apuntado = (k) => { try { return localStorage.getItem(k); } catch (e) { re
 // (con ?personaje=video, el personaje de partida hecho contra el vídeo: docs/personaje_video.md)
 // (el propio: el que se guardó en el editor y con el que se salió a la calle)
 const propio = !q.get('personaje') && apuntado('personaje_en_calle') === '1' && !!apuntado('personaje');
-// De serie sale la chica del vídeo (desde el 10-11-2026: publicada solo como botón del editor, al abrir el enlace
-// seguía saliendo la de antes, y el usuario: «es el personaje de antes, no hay ningún personaje nuevo»). La de antes,
-// la de Rocketbox, con ?personaje=chica; y si la del vídeo no cargara, se apunta en la sesión (sin_video) y sale ella
-const sinVideo = (() => { try { return sessionStorage.getItem('sin_video') === '1'; } catch (e) { return false; } })();
-const delVideo = q.get('personaje') === 'video' || (!q.get('personaje') && !propio && !sinVideo);
+// De serie sale la chica de antes, la de Rocketbox (el usuario, el 10-11-2026, con la del vídeo de serie desde esa
+// mañana: «vuelve a personaje anterior de la chica»). La del vídeo queda en el editor («La del vídeo» y «Guardar y salir
+// a la calle») y con ?personaje=video
+const delVideo = q.get('personaje') === 'video';
 const mio = !!escena.chica && (delVideo || q.get('personaje') === 'editor' || propio);
 const estadoMio = !mio ? null : delVideo ? await (await fetch('./assets/personaje/del_video.json')).json() : estadoGuardado(q);
 const chica = q.get('personaje') !== 'bitmoji' && escena.chica ? (mio ? './escenas/personaje/' : nino ? './escenas/nino/' : escena.chica) : null;
@@ -551,15 +550,12 @@ if (mio) {
     mi = await montarPersonaje({ app, estado: estadoMio, movil, q,
       leer: (u) => (String(mem[glb(u)]).startsWith('blob:') ? fetch(mem[glb(u)]).then((r) => r.arrayBuffer()) : leerArchivo(u)) });
   } catch (e) {
-    // (si el personaje no carga, que no deje a nadie sin calle: si era el propio, se vuelve a la del vídeo; si era la
-    // del vídeo, a la de antes; y se recarga. Sin poder apuntarlo no se recarga, que sería recargar sin fin)
+    // (si el personaje propio no carga, que no deje a nadie sin calle: se vuelve a la chica de serie y se recarga. Sin
+    // poder apuntarlo no se recarga, que sería recargar sin fin)
     console.error('personaje: ' + (e?.stack || e));
     if (q.get('personaje')) throw e;
     let apuntadoElFallo = false;
-    try {
-      if (propio) localStorage.removeItem('personaje_en_calle'); else sessionStorage.setItem('sin_video', '1');
-      apuntadoElFallo = true;
-    } catch (e2) { /* sin almacenamiento */ }
+    try { localStorage.removeItem('personaje_en_calle'); apuntadoElFallo = true; } catch (e2) { /* sin almacenamiento */ }
     if (!apuntadoElFallo) throw e;
     location.reload(); await new Promise(() => {});
   }
