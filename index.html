@@ -17,10 +17,6 @@
   #ayuda { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); left: calc(10px + env(safe-area-inset-left, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: fit-content; max-width: calc(100% - 20px); padding: 6px 10px; background: var(--velo); border-radius: 6px; pointer-events: none; opacity: .85; }
   #carga { position: fixed; inset: 0; display: grid; place-items: center; background: var(--fondo); font-size: 18px; padding-inline: 16px; text-align: center; }
   #carga[hidden] { display: none; }
-  /* el botón del editor de personajes, arriba a la derecha, con el mismo velo que los rótulos */
-  #personaje { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); padding: 8px 12px; background: var(--velo); color: var(--texto); border: 1px solid rgba(255, 255, 255, .28); border-radius: 6px; font: inherit; cursor: pointer; }
-  #personaje:hover, #personaje:focus-visible { background: rgba(10, 10, 12, .82); border-color: #d9b27c; outline: none; }
-  @media (max-width: 760px) { #personaje { top: calc(52px + env(safe-area-inset-top, 0px)); } } /* (en un móvil, bajo el rótulo de arriba, que llega al borde) */
 </style>
 <script>window.ESCENA_POR_DEFECTO = 'malfeitos_gris';</script>
 <script type="importmap">
@@ -35,16 +31,12 @@
 <div id="hud">cargando…</div>
 <div id="ayuda">WASD andar · Shift correr · Espacio saltar · ratón girar · rueda zoom</div>
 <div id="carga">Cargando la calle Malfeitos…</div>
-<button id="personaje" type="button">Crea tu personaje</button>
+<!-- (sin el botón «Crea tu personaje»: el usuario lo quitó el 10-11-2026; el editor se abre con …#personaje) -->
 <style>#creditos { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); padding: 6px 10px; background: var(--velo, rgba(10, 10, 12, .55)); color: var(--texto, #eeeae2); border-radius: 6px; font: 12px/1.4 -apple-system, system-ui, sans-serif; text-decoration: none; opacity: .8; z-index: 5; }
   #creditos:hover, #creditos:focus-visible { opacity: 1; text-decoration: underline; }
   @media (max-width: 760px) { #creditos { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); } }</style>
 <a id="creditos" href="./creditos.txt" target="_blank" rel="noopener">Créditos</a>
-<style>#escena { position: fixed; top: calc(52px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); padding: 6px 10px; background: var(--velo, rgba(10, 10, 12, .55)); color: var(--texto, #eeeae2); border: 1px solid rgba(255, 255, 255, .28); border-radius: 6px; font: 12px/1.4 -apple-system, system-ui, sans-serif; text-decoration: none; z-index: 5; }
-  #escena:hover, #escena:focus-visible { border-color: #d9b27c; outline: none; }
-  @media (max-width: 760px) { #escena { top: calc(94px + env(safe-area-inset-top, 0px)); } }</style>
-<a id="escena" href="./?escena=guarena">Ver el pueblo entero</a>
-<script>(() => { const a = document.getElementById('escena'), en = new URLSearchParams(location.search).get('escena') === 'guarena'; if (en) { a.textContent = 'Volver a la calle Malfeitos'; a.href = './'; } if (location.hash === '#personaje') for (const id of ['escena', 'creditos']) document.getElementById(id)?.remove(); })();</script>
+<script>if (location.hash === '#personaje') document.getElementById('creditos')?.remove();</script>
 <script type="module" src="./src/entrada.js"></script>
 </body>
 </html>

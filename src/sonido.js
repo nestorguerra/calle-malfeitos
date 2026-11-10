@@ -50,14 +50,17 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
   const fijos = [];
   const cerca = (lista, n, z0, z1) => lista.filter((v) => v.p[2] > z0 && v.p[2] < z1).sort(() => Math.random() - 0.5).slice(0, n);
   const empezarFijos = () => {
-    sonar('fondo', general, { gan: 0.4, bucle: true });
+    // (10-11-2026, el usuario: «el sonido de andar más bajo, más normal, y los pájaros y el sonido ambiente más bajito en
+    // general, más solo un ambiente». Todo lo de la calle, a la mitad o menos: fondo −4 dB; pájaros, radio, perro,
+    // campanas y toldos, de −5 a −9 dB; los pasos, −7 dB. El motor de los coches, igual)
+    sonar('fondo', general, { gan: 0.25, bucle: true });
     // los gorriones, en un par de aleros del tramo que se anda (a 20–40 m y a 60–80 m del cruce con Nueva)
-    for (const [z0, z1] of [[20, 40], [60, 80]]) for (const a of cerca(vida.aleros.map((x) => ({ p: x.a })), 1, z0, z1)) fijos.push(sonar('gorriones', panner(a.p, 4), { gan: 0.3, bucle: true }));
+    for (const [z0, z1] of [[20, 40], [60, 80]]) for (const a of cerca(vida.aleros.map((x) => ({ p: x.a })), 1, z0, z1)) fijos.push(sonar('gorriones', panner(a.p, 4), { gan: 0.12, bucle: true }));
     // la radio: una ventana de la primera planta, hacia la mitad del tramo
     const v = cerca(vida.ventanas.filter((x) => x.p[1] < 6), 1, 40, 60)[0];
-    if (v) fijos.push(sonar('radio', panner([v.p[0] - v.n[0] * 0.5, v.p[1], v.p[2] - v.n[1] * 0.5], 1.5, 30), { gan: 0.22, bucle: true }));
+    if (v) fijos.push(sonar('radio', panner([v.p[0] - v.n[0] * 0.5, v.p[1], v.p[2] - v.n[1] * 0.5], 1.5, 30), { gan: 0.12, bucle: true }));
     // la tela de los toldos: sube con las rachas
-    for (const t of vida.toldos) { const m = t.a.map((x, i) => (x + t.b[i]) / 2); const s = sonar('tela', panner(m, 2, 30), { gan: 0.15, bucle: true }); if (s) telas.push(s); }
+    for (const t of vida.toldos) { const m = t.a.map((x, i) => (x + t.b[i]) / 2); const s = sonar('tela', panner(m, 2, 30), { gan: 0.08, bucle: true }); if (s) telas.push(s); }
   };
   const telas = [];
 
@@ -69,7 +72,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
     const p = ctrl.getPosition(), r = azar(0, Math.PI * 2), h = azar(12, 20), v = azar(25, 40), L = 70;
     const pn = panner([0, 0, 0], 6, 120);
     const desde = new Vec3(p.x - Math.sin(r) * L / 2 + azar(-8, 8), h, p.z - Math.cos(r) * L / 2 + azar(-8, 8));
-    const s = sonar('vencejos' + Math.floor(Math.random() * 6), pn, { gan: 0.45, tono: azar(0.95, 1.08) });
+    const s = sonar('vencejos' + Math.floor(Math.random() * 6), pn, { gan: 0.16, tono: azar(0.95, 1.08) });
     const dir = new Vec3(Math.sin(r) * v, 0, Math.cos(r) * v);
     if (s) volando.push({ pn, desde, dir, t: 0, fin: s.s.buffer.duration });
     if (api.alPasar) api.alPasar(desde.clone(), dir.clone(), s ? s.s.buffer.duration : 3); // (los vencejos que se ven, por el mismo camino: src/vida.js)
@@ -79,17 +82,17 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
     const p = ctrl.getPosition(), r = azar(0, Math.PI * 2), d = azar(40, 70);
     const pn = panner([p.x + Math.sin(r) * d, 1.5, p.z + Math.cos(r) * d], 3, 120);
     const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 2200 }); lp.connect(pn); // (lejos y tras las casas: sin agudos)
-    let t = 0; for (let i = 0, n = 2 + Math.floor(Math.random() * 3); i < n; i++) { sonar('ladrido', lp, { gan: 0.4, tono: azar(0.96, 1.04), cuando: t }); t += azar(0.45, 0.9); }
+    let t = 0; for (let i = 0, n = 2 + Math.floor(Math.random() * 3); i < n; i++) { sonar('ladrido', lp, { gan: 0.2, tono: azar(0.96, 1.04), cuando: t }); t += azar(0.45, 0.9); }
   };
   const arrullo = () => {
     // (unas palomas en el alero más cercano)
     const p = ctrl.getPosition(); let mejor = null, dm = 1e9;
     for (const a of vida.aleros) { const m = [(a.a[0] + a.b[0]) / 2, a.a[1], (a.a[2] + a.b[2]) / 2], d = Math.hypot(m[0] - p.x, m[2] - p.z); if (d > 6 && d < dm) { dm = d; mejor = m; } }
-    if (mejor && dm < 30) sonar('arrullo' + Math.floor(Math.random() * 3), panner(mejor, 2, 40), { gan: 0.35 });
+    if (mejor && dm < 30) sonar('arrullo' + Math.floor(Math.random() * 3), panner(mejor, 2, 40), { gan: 0.14 });
   };
   // las campanadas: a cada hora en punto, las de la hora (de 1 a 12), y una a la media; ?campanas=N, N al empezar
   const torre = [vida.aleros.length ? vida.aleros[0].a[0] + 60 : 60, 25, -40];
-  const campanadas = (n) => { const pn = panner(torre, 30, 400); const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3500 }); lp.connect(pn); for (let i = 0; i < n; i++) sonar('campanada', lp, { gan: 0.55, cuando: i * 2.6 }); };
+  const campanadas = (n) => { const pn = panner(torre, 30, 400); const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3500 }); lp.connect(pn); for (let i = 0; i < n; i++) sonar('campanada', lp, { gan: 0.3, cuando: i * 2.6 }); };
   let ultimoMinuto = -1;
   const reloj = () => {
     const h = new Date(); const m = h.getHours() * 60 + h.getMinutes();
@@ -112,7 +115,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
       if (pie.arriba && h < pie.min + 0.03 && rapidez > 0.4 && Math.abs(v.y) < 1.5) {
         pie.arriba = false;
         const s = pasoDe(yS), correr = rapidez > 2.2; dados[s]++;
-        sonar('paso_' + s + Math.floor(Math.random() * cuantos[s]), pasosBus, { gan: (correr ? 0.42 : 0.24) * azar(0.85, 1.1), tono: azar(0.93, 1.07) });
+        sonar('paso_' + s + Math.floor(Math.random() * cuantos[s]), pasosBus, { gan: (correr ? 0.19 : 0.105) * azar(0.85, 1.1), tono: azar(0.93, 1.07) });
       } else if (!pie.arriba && h > pie.min + 0.07) pie.arriba = true;
     }
   };
@@ -148,7 +151,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
       if (k === 'arrullo') { arrullo(); pendientes[k] = azar(10, 25); }
     }
     const w = viento(t);
-    for (const s of telas) s.g.gain.setTargetAtTime(0.03 + 0.22 * w, ct, 0.3);
+    for (const s of telas) s.g.gain.setTargetAtTime(0.015 + 0.11 * w, ct, 0.3);
     pasos(dt);
     if ((Math.floor(t) & 7) === 0) reloj();
   });
