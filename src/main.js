@@ -226,6 +226,7 @@ if (foto) {
   escena.sol = escena.sol || '55,-60';
 }
 const mem = await enMemoria, de = (u) => mem[u] || u;
+if (window.esperaConstruir) await window.esperaConstruir; // (dentro de la web de 388 Pueblos, se construye cuando ella lo dice: src/desde388.js)
 const A = {
   ...(escena.splat ? { splat: new Asset('splat', 'gsplat', { url: escena.splat }) } : {}),
   ...(planosFoto ? Object.fromEntries(Object.entries(planosFoto.planos).map(([k, p]) => ['tex_' + k, new Asset('tex_' + k, 'texture', { url: foto.replace(/\/?$/, '/') + p.textura })])) : {}),

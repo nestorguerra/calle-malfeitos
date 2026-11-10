@@ -26,5 +26,7 @@ if (EDITOR) {
     if (guardado('personaje_en_calle') === '1' && guardado('personaje')) boton.textContent = 'Cambiar de personaje';
     boton.addEventListener('click', () => window.irA(true));
   }
+  // (dentro de la web de 388 Pueblos, con ?desde=388: su entrada, antes de que arranque la calle; src/desde388.js)
+  if (window.parent !== window && new URLSearchParams(location.search).get('desde') === '388') await import('./desde388.js');
   await import('./main.js');
 }
