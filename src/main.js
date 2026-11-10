@@ -77,7 +77,8 @@ const MODELOS = {
 // proyección exacta; la levanta tools/blender/guarena.sh en escenas/guarena. El cielo y los sonidos, los de siempre
 MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guarena.glb', colision: './escenas/guarena/guarena_colision.glb',
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
-  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
+  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
+  colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json' }; // (las cuestas de verdad, al dibujar: src/relieve.js)
 const modelo = MODELOS[q.get('escena')] ? { ...MODELOS[q.get('escena')], ...(q.get('modelo') ? { modelo: q.get('modelo') } : {}) }
   : (q.get('modelo') ? { modelo: q.get('modelo') } : null); // (?modelo= también cambia el .glb de una escena: para probar variantes)
@@ -125,6 +126,7 @@ const grandes = [
   ...(modelo && escena.partes ? escena.partes.map(glb) : []),
   ...(escena.objetos && q.get('objetos') !== '0' ? [glb(escena.objetos)] : []),
   ...(escena.colision && !escena.colision.startsWith('http') ? [glb(escena.colision)] : []),
+  ...(modelo && escena.colisiones ? escena.colisiones.map(glb) : []),
   ...(chica ? [...(mio ? [] : [cuerpo]), 'quieto', 'andar', 'correr', 'saltar'].map((n) => glb(chica + n + '.glb')) : []),
   ...(mio ? archivosDe(estadoMio).map(glb) : []), // (el cuerpo y las prendas del personaje del editor)
   ...(escena.cielo ? [escena.cielo] : []),
@@ -248,6 +250,7 @@ const A = {
   lut: new Asset('lut', 'texture', { url: './assets/lut/' + (q.get('lut') || 'gta_malfeitos') + '.png' }, { mipmaps: false, srgb: true, minfilter: 'linear', magfilter: 'linear', addressu: 'clamp', addressv: 'clamp' }),
 };
 if (escena.colision) A.colision = new Asset('colision', 'container', { url: escena.colision.startsWith('http') ? escena.colision : de(glb(escena.colision)) });
+if (modelo && escena.colisiones) escena.colisiones.forEach((p, i) => { A['colision' + i] = new Asset('colision' + i, 'container', { url: de(glb(p)) }); }); // (las colisiones de lo que va aparte)
 if (modelo) A.modelo = new Asset('modelo', 'container', { url: de(glb(escena.modelo)) });
 if (modelo && escena.partes) escena.partes.forEach((p, i) => { A['parte' + i] = new Asset('parte' + i, 'container', { url: de(glb(p)) }); });
 if (escena.objetos && q.get('objetos') !== '0') A.objetos = new Asset('objetos', 'container', { url: de(glb(escena.objetos)) }); // (?objetos=0: sin ellos)
@@ -405,8 +408,9 @@ if (planosFoto) {
   caja(P.izq - 0.25, P.alto_pared / 2, zc, 0.5, P.alto_pared, L); caja(P.der + 0.25, P.alto_pared / 2, zc, 0.5, P.alto_pared, L);
   caja((P.izq + P.der) / 2, P.alto_pared / 2, -P.fondo - 0.25, P.der - P.izq, P.alto_pared, 0.5); caja((P.izq + P.der) / 2, P.alto_pared / 2, 0.25, P.der - P.izq, P.alto_pared, 0.5);
 }
-if (A.colision) {
-  const col = A.colision.resource.instantiateRenderEntity();
+for (const a of [A.colision, ...(modelo && escena.colisiones ? escena.colisiones.map((_, i) => A['colision' + i]) : [])]) {
+  if (!a) continue;
+  const col = a.resource.instantiateRenderEntity();
   col.findComponents('render').forEach((render) => {
     render.entity.addComponent('rigidbody', { type: 'static', friction: 0.5, restitution: 0 });
     render.entity.addComponent('collision', { type: 'mesh', renderAsset: render.asset });
