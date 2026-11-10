@@ -40,6 +40,11 @@
   #creditos:hover, #creditos:focus-visible { opacity: 1; text-decoration: underline; }
   @media (max-width: 760px) { #creditos { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); } }</style>
 <a id="creditos" href="./creditos.txt" target="_blank" rel="noopener">Créditos</a>
+<style>#escena { position: fixed; top: calc(52px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); padding: 6px 10px; background: var(--velo, rgba(10, 10, 12, .55)); color: var(--texto, #eeeae2); border: 1px solid rgba(255, 255, 255, .28); border-radius: 6px; font: 12px/1.4 -apple-system, system-ui, sans-serif; text-decoration: none; z-index: 5; }
+  #escena:hover, #escena:focus-visible { border-color: #d9b27c; outline: none; }
+  @media (max-width: 760px) { #escena { top: calc(94px + env(safe-area-inset-top, 0px)); } }</style>
+<a id="escena" href="./?escena=guarena">Ver el pueblo entero</a>
+<script>(() => { const a = document.getElementById('escena'), en = new URLSearchParams(location.search).get('escena') === 'guarena'; if (en) { a.textContent = 'Volver a la calle Malfeitos'; a.href = './'; } if (location.hash === '#personaje') for (const id of ['escena', 'creditos']) document.getElementById(id)?.remove(); })();</script>
 <script type="module" src="./src/entrada.js"></script>
 </body>
 </html>

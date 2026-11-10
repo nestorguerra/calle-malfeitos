@@ -1,0 +1,1541 @@
+{
+ "celda": 200.0,
+ "zonas": [
+  {
+   "clave": "-7_-5",
+   "archivo": "zonas/zona_-7_-5.glb",
+   "caja": [
+    -1315.0,
+    799.9,
+    -1201.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 1596
+  },
+  {
+   "clave": "-7_-4",
+   "archivo": "zonas/zona_-7_-4.glb",
+   "caja": [
+    -1315.0,
+    601.9,
+    -1201.0,
+    799.9
+   ],
+   "lejos": null,
+   "caras": 4389
+  },
+  {
+   "clave": "-7_-3",
+   "archivo": "zonas/zona_-7_-3.glb",
+   "caja": [
+    -1315.0,
+    397.9,
+    -1201.0,
+    601.9
+   ],
+   "lejos": null,
+   "caras": 4465
+  },
+  {
+   "clave": "-7_-2",
+   "archivo": "zonas/zona_-7_-2.glb",
+   "caja": [
+    -1315.0,
+    199.9,
+    -1201.0,
+    403.9
+   ],
+   "lejos": null,
+   "caras": 4446
+  },
+  {
+   "clave": "-7_-1",
+   "archivo": "zonas/zona_-7_-1.glb",
+   "caja": [
+    -1315.0,
+    -12.6,
+    -1169.8,
+    199.9
+   ],
+   "lejos": "lejos_-7_-1",
+   "caras": 18851
+  },
+  {
+   "clave": "-7_0",
+   "archivo": "zonas/zona_-7_0.glb",
+   "caja": [
+    -1315.0,
+    -202.1,
+    -1180.7,
+    1.9
+   ],
+   "lejos": "lejos_-7_0",
+   "caras": 9924
+  },
+  {
+   "clave": "-7_1",
+   "archivo": "zonas/zona_-7_1.glb",
+   "caja": [
+    -1315.0,
+    -400.1,
+    -1201.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 4446
+  },
+  {
+   "clave": "-7_2",
+   "archivo": "zonas/zona_-7_2.glb",
+   "caja": [
+    -1315.0,
+    -556.1,
+    -1201.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 3458
+  },
+  {
+   "clave": "-6_-5",
+   "archivo": "zonas/zona_-6_-5.glb",
+   "caja": [
+    -1201.0,
+    799.9,
+    -997.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2820
+  },
+  {
+   "clave": "-6_-4",
+   "archivo": "zonas/zona_-6_-4.glb",
+   "caja": [
+    -1201.0,
+    601.9,
+    -997.0,
+    799.9
+   ],
+   "lejos": null,
+   "caras": 7755
+  },
+  {
+   "clave": "-6_-3",
+   "archivo": "zonas/zona_-6_-3.glb",
+   "caja": [
+    -1201.0,
+    378.3,
+    -989.1,
+    601.9
+   ],
+   "lejos": null,
+   "caras": 8422
+  },
+  {
+   "clave": "-6_-2",
+   "archivo": "zonas/zona_-6_-2.glb",
+   "caja": [
+    -1201.0,
+    199.9,
+    -997.0,
+    403.9
+   ],
+   "lejos": null,
+   "caras": 7917
+  },
+  {
+   "clave": "-6_-1",
+   "archivo": "zonas/zona_-6_-1.glb",
+   "caja": [
+    -1228.1,
+    -13.8,
+    -997.0,
+    199.9
+   ],
+   "lejos": "lejos_-6_-1",
+   "caras": 16241
+  },
+  {
+   "clave": "-6_0",
+   "archivo": "zonas/zona_-6_0.glb",
+   "caja": [
+    -1217.3,
+    -202.1,
+    -997.0,
+    14.2
+   ],
+   "lejos": "lejos_-6_0",
+   "caras": 10175
+  },
+  {
+   "clave": "-6_1",
+   "archivo": "zonas/zona_-6_1.glb",
+   "caja": [
+    -1201.0,
+    -400.1,
+    -997.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7854
+  },
+  {
+   "clave": "-6_2",
+   "archivo": "zonas/zona_-6_2.glb",
+   "caja": [
+    -1201.0,
+    -556.1,
+    -997.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6110
+  },
+  {
+   "clave": "-5_-5",
+   "archivo": "zonas/zona_-5_-5.glb",
+   "caja": [
+    -1003.0,
+    799.9,
+    -799.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2808
+  },
+  {
+   "clave": "-5_-4",
+   "archivo": "zonas/zona_-5_-4.glb",
+   "caja": [
+    -1003.0,
+    601.9,
+    -799.0,
+    799.9
+   ],
+   "lejos": null,
+   "caras": 7722
+  },
+  {
+   "clave": "-5_-3",
+   "archivo": "zonas/zona_-5_-3.glb",
+   "caja": [
+    -1013.8,
+    343.9,
+    -777.1,
+    601.9
+   ],
+   "lejos": "lejos_-5_-3",
+   "caras": 11918
+  },
+  {
+   "clave": "-5_-2",
+   "archivo": "zonas/zona_-5_-2.glb",
+   "caja": [
+    -1006.1,
+    199.9,
+    -780.7,
+    403.9
+   ],
+   "lejos": "lejos_-5_-2",
+   "caras": 15513
+  },
+  {
+   "clave": "-5_-1",
+   "archivo": "zonas/zona_-5_-1.glb",
+   "caja": [
+    -1003.0,
+    1.9,
+    -799.0,
+    199.9
+   ],
+   "lejos": null,
+   "caras": 7722
+  },
+  {
+   "clave": "-5_0",
+   "archivo": "zonas/zona_-5_0.glb",
+   "caja": [
+    -1003.0,
+    -202.1,
+    -799.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 7854
+  },
+  {
+   "clave": "-5_1",
+   "archivo": "zonas/zona_-5_1.glb",
+   "caja": [
+    -1003.0,
+    -400.1,
+    -799.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7824
+  },
+  {
+   "clave": "-5_2",
+   "archivo": "zonas/zona_-5_2.glb",
+   "caja": [
+    -1003.0,
+    -556.1,
+    -799.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6084
+  },
+  {
+   "clave": "-4_-5",
+   "archivo": "zonas/zona_-4_-5.glb",
+   "caja": [
+    -799.0,
+    799.9,
+    -601.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2772
+  },
+  {
+   "clave": "-4_-4",
+   "archivo": "zonas/zona_-4_-4.glb",
+   "caja": [
+    -799.0,
+    601.9,
+    -601.0,
+    799.9
+   ],
+   "lejos": null,
+   "caras": 7623
+  },
+  {
+   "clave": "-4_-3",
+   "archivo": "zonas/zona_-4_-3.glb",
+   "caja": [
+    -817.9,
+    333.0,
+    -590.0,
+    601.9
+   ],
+   "lejos": "lejos_-4_-3",
+   "caras": 14852
+  },
+  {
+   "clave": "-4_-2",
+   "archivo": "zonas/zona_-4_-2.glb",
+   "caja": [
+    -810.7,
+    122.2,
+    -584.8,
+    514.6
+   ],
+   "lejos": "lejos_-4_-2",
+   "caras": 34942
+  },
+  {
+   "clave": "-4_-1",
+   "archivo": "zonas/zona_-4_-1.glb",
+   "caja": [
+    -799.0,
+    -8.7,
+    -574.9,
+    250.2
+   ],
+   "lejos": "lejos_-4_-1",
+   "caras": 45551
+  },
+  {
+   "clave": "-4_0",
+   "archivo": "zonas/zona_-4_0.glb",
+   "caja": [
+    -799.0,
+    -230.5,
+    -549.8,
+    9.2
+   ],
+   "lejos": "lejos_-4_0",
+   "caras": 25983
+  },
+  {
+   "clave": "-4_1",
+   "archivo": "zonas/zona_-4_1.glb",
+   "caja": [
+    -799.0,
+    -408.4,
+    -571.7,
+    -167.8
+   ],
+   "lejos": "lejos_-4_1",
+   "caras": 26953
+  },
+  {
+   "clave": "-4_2",
+   "archivo": "zonas/zona_-4_2.glb",
+   "caja": [
+    -799.0,
+    -556.1,
+    -601.0,
+    -395.5
+   ],
+   "lejos": null,
+   "caras": 7304
+  },
+  {
+   "clave": "-3_-5",
+   "archivo": "zonas/zona_-3_-5.glb",
+   "caja": [
+    -601.0,
+    799.9,
+    -397.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2820
+  },
+  {
+   "clave": "-3_-4",
+   "archivo": "zonas/zona_-3_-4.glb",
+   "caja": [
+    -601.0,
+    601.9,
+    -397.0,
+    799.9
+   ],
+   "lejos": null,
+   "caras": 7755
+  },
+  {
+   "clave": "-3_-3",
+   "archivo": "zonas/zona_-3_-3.glb",
+   "caja": [
+    -612.7,
+    373.8,
+    -347.4,
+    601.9
+   ],
+   "lejos": "lejos_-3_-3",
+   "caras": 15856
+  },
+  {
+   "clave": "-3_-2",
+   "archivo": "zonas/zona_-3_-2.glb",
+   "caja": [
+    -614.7,
+    147.4,
+    -386.2,
+    424.7
+   ],
+   "lejos": "lejos_-3_-2",
+   "caras": 55532
+  },
+  {
+   "clave": "-3_-1",
+   "archivo": "zonas/zona_-3_-1.glb",
+   "caja": [
+    -645.1,
+    -16.2,
+    -363.1,
+    237.8
+   ],
+   "lejos": "lejos_-3_-1",
+   "caras": 80174
+  },
+  {
+   "clave": "-3_0",
+   "archivo": "zonas/zona_-3_0.glb",
+   "caja": [
+    -649.6,
+    -244.7,
+    -388.4,
+    6.3
+   ],
+   "lejos": "lejos_-3_0",
+   "caras": 105387
+  },
+  {
+   "clave": "-3_1",
+   "archivo": "zonas/zona_-3_1.glb",
+   "caja": [
+    -633.3,
+    -400.1,
+    -387.3,
+    -145.4
+   ],
+   "lejos": "lejos_-3_1",
+   "caras": 24320
+  },
+  {
+   "clave": "-3_2",
+   "archivo": "zonas/zona_-3_2.glb",
+   "caja": [
+    -601.0,
+    -556.1,
+    -397.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6110
+  },
+  {
+   "clave": "-2_-5",
+   "archivo": "zonas/zona_-2_-5.glb",
+   "caja": [
+    -403.0,
+    799.9,
+    -199.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2808
+  },
+  {
+   "clave": "-2_-4",
+   "archivo": "zonas/zona_-2_-4.glb",
+   "caja": [
+    -403.0,
+    591.9,
+    -182.5,
+    799.9
+   ],
+   "lejos": "lejos_-2_-4",
+   "caras": 24366
+  },
+  {
+   "clave": "-2_-3",
+   "archivo": "zonas/zona_-2_-3.glb",
+   "caja": [
+    -465.9,
+    365.6,
+    -189.2,
+    606.8
+   ],
+   "lejos": "lejos_-2_-3",
+   "caras": 107903
+  },
+  {
+   "clave": "-2_-2",
+   "archivo": "zonas/zona_-2_-2.glb",
+   "caja": [
+    -422.7,
+    183.8,
+    -183.2,
+    419.5
+   ],
+   "lejos": "lejos_-2_-2",
+   "caras": 330794
+  },
+  {
+   "clave": "-2_-1",
+   "archivo": "zonas/zona_-2_-1.glb",
+   "caja": [
+    -432.8,
+    -29.8,
+    -187.9,
+    216.9
+   ],
+   "lejos": "lejos_-2_-1",
+   "caras": 297046
+  },
+  {
+   "clave": "-2_0",
+   "archivo": "zonas/zona_-2_0.glb",
+   "caja": [
+    -411.5,
+    -209.0,
+    -175.6,
+    18.1
+   ],
+   "lejos": "lejos_-2_0",
+   "caras": 204206
+  },
+  {
+   "clave": "-2_1",
+   "archivo": "zonas/zona_-2_1.glb",
+   "caja": [
+    -413.1,
+    -434.1,
+    -177.8,
+    -188.5
+   ],
+   "lejos": "lejos_-2_1",
+   "caras": 147008
+  },
+  {
+   "clave": "-2_2",
+   "archivo": "zonas/zona_-2_2.glb",
+   "caja": [
+    -403.0,
+    -556.1,
+    -178.2,
+    -353.4
+   ],
+   "lejos": "lejos_-2_2",
+   "caras": 44503
+  },
+  {
+   "clave": "-1_-5",
+   "archivo": "zonas/zona_-1_-5.glb",
+   "caja": [
+    -199.0,
+    769.3,
+    -1.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 3304
+  },
+  {
+   "clave": "-1_-4",
+   "archivo": "zonas/zona_-1_-4.glb",
+   "caja": [
+    -211.7,
+    592.5,
+    2.3,
+    828.3
+   ],
+   "lejos": "lejos_-1_-4",
+   "caras": 31568
+  },
+  {
+   "clave": "-1_-3",
+   "archivo": "zonas/zona_-1_-3.glb",
+   "caja": [
+    -212.3,
+    382.4,
+    15.8,
+    608.8
+   ],
+   "lejos": "lejos_-1_-3",
+   "caras": 232041
+  },
+  {
+   "clave": "-1_-2",
+   "archivo": "zonas/zona_-1_-2.glb",
+   "caja": [
+    -212.6,
+    148.9,
+    18.2,
+    413.3
+   ],
+   "lejos": "lejos_-1_-2",
+   "caras": 403030
+  },
+  {
+   "clave": "-1_-1",
+   "archivo": "zonas/zona_-1_-1.glb",
+   "caja": [
+    -208.5,
+    -6.2,
+    15.9,
+    226.8
+   ],
+   "lejos": "lejos_-1_-1",
+   "caras": 341244
+  },
+  {
+   "clave": "-1_0",
+   "archivo": "zonas/zona_-1_0.glb",
+   "caja": [
+    -224.6,
+    -207.8,
+    13.5,
+    15.9
+   ],
+   "lejos": "lejos_-1_0",
+   "caras": 271393
+  },
+  {
+   "clave": "-1_1",
+   "archivo": "zonas/zona_-1_1.glb",
+   "caja": [
+    -218.4,
+    -413.9,
+    31.8,
+    -190.9
+   ],
+   "lejos": "lejos_-1_1",
+   "caras": 199410
+  },
+  {
+   "clave": "-1_2",
+   "archivo": "zonas/zona_-1_2.glb",
+   "caja": [
+    -210.9,
+    -556.1,
+    1.5,
+    -379.1
+   ],
+   "lejos": "lejos_-1_2",
+   "caras": 57584
+  },
+  {
+   "clave": "0_-5",
+   "archivo": "zonas/zona_0_-5.glb",
+   "caja": [
+    -1.0,
+    766.8,
+    203.0,
+    871.9
+   ],
+   "lejos": "lejos_0_-5",
+   "caras": 3873
+  },
+  {
+   "clave": "0_-4",
+   "archivo": "zonas/zona_0_-4.glb",
+   "caja": [
+    -2.3,
+    583.5,
+    211.5,
+    845.8
+   ],
+   "lejos": "lejos_0_-4",
+   "caras": 58512
+  },
+  {
+   "clave": "0_-3",
+   "archivo": "zonas/zona_0_-3.glb",
+   "caja": [
+    -14.7,
+    366.2,
+    207.5,
+    616.6
+   ],
+   "lejos": "lejos_0_-3",
+   "caras": 315483
+  },
+  {
+   "clave": "0_-2",
+   "archivo": "zonas/zona_0_-2.glb",
+   "caja": [
+    -13.7,
+    179.4,
+    207.4,
+    438.5
+   ],
+   "lejos": "lejos_0_-2",
+   "caras": 377426
+  },
+  {
+   "clave": "0_-1",
+   "archivo": "zonas/zona_0_-1.glb",
+   "caja": [
+    -12.2,
+    -28.2,
+    211.4,
+    225.2
+   ],
+   "lejos": "lejos_0_-1",
+   "caras": 339588
+  },
+  {
+   "clave": "0_0",
+   "archivo": "zonas/zona_0_0.glb",
+   "caja": [
+    -20.1,
+    -211.6,
+    217.2,
+    25.5
+   ],
+   "lejos": "lejos_0_0",
+   "caras": 164115
+  },
+  {
+   "clave": "0_1",
+   "archivo": "zonas/zona_0_1.glb",
+   "caja": [
+    -27.2,
+    -401.9,
+    203.6,
+    -189.8
+   ],
+   "lejos": "lejos_0_1",
+   "caras": 164089
+  },
+  {
+   "clave": "0_2",
+   "archivo": "zonas/zona_0_2.glb",
+   "caja": [
+    -3.6,
+    -556.1,
+    203.0,
+    -395.5
+   ],
+   "lejos": "lejos_0_2",
+   "caras": 7591
+  },
+  {
+   "clave": "1_-5",
+   "archivo": "zonas/zona_1_-5.glb",
+   "caja": [
+    197.0,
+    784.9,
+    404.2,
+    871.9
+   ],
+   "lejos": "lejos_1_-5",
+   "caras": 9962
+  },
+  {
+   "clave": "1_-4",
+   "archivo": "zonas/zona_1_-4.glb",
+   "caja": [
+    194.4,
+    583.1,
+    472.6,
+    825.4
+   ],
+   "lejos": "lejos_1_-4",
+   "caras": 89326
+  },
+  {
+   "clave": "1_-3",
+   "archivo": "zonas/zona_1_-3.glb",
+   "caja": [
+    187.0,
+    378.3,
+    471.9,
+    617.9
+   ],
+   "lejos": "lejos_1_-3",
+   "caras": 296084
+  },
+  {
+   "clave": "1_-2",
+   "archivo": "zonas/zona_1_-2.glb",
+   "caja": [
+    191.0,
+    197.8,
+    406.3,
+    440.6
+   ],
+   "lejos": "lejos_1_-2",
+   "caras": 271099
+  },
+  {
+   "clave": "1_-1",
+   "archivo": "zonas/zona_1_-1.glb",
+   "caja": [
+    190.8,
+    -6.9,
+    422.8,
+    203.9
+   ],
+   "lejos": "lejos_1_-1",
+   "caras": 218541
+  },
+  {
+   "clave": "1_0",
+   "archivo": "zonas/zona_1_0.glb",
+   "caja": [
+    181.7,
+    -203.2,
+    404.2,
+    23.2
+   ],
+   "lejos": "lejos_1_0",
+   "caras": 70292
+  },
+  {
+   "clave": "1_1",
+   "archivo": "zonas/zona_1_1.glb",
+   "caja": [
+    195.8,
+    -400.1,
+    401.0,
+    -195.0
+   ],
+   "lejos": "lejos_1_1",
+   "caras": 136460
+  },
+  {
+   "clave": "1_2",
+   "archivo": "zonas/zona_1_2.glb",
+   "caja": [
+    197.0,
+    -556.1,
+    401.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6084
+  },
+  {
+   "clave": "2_-5",
+   "archivo": "zonas/zona_2_-5.glb",
+   "caja": [
+    392.1,
+    744.8,
+    611.3,
+    871.9
+   ],
+   "lejos": "lejos_2_-5",
+   "caras": 10979
+  },
+  {
+   "clave": "2_-4",
+   "archivo": "zonas/zona_2_-4.glb",
+   "caja": [
+    339.1,
+    580.7,
+    613.1,
+    833.0
+   ],
+   "lejos": "lejos_2_-4",
+   "caras": 99338
+  },
+  {
+   "clave": "2_-3",
+   "archivo": "zonas/zona_2_-3.glb",
+   "caja": [
+    390.9,
+    355.0,
+    611.4,
+    621.5
+   ],
+   "lejos": "lejos_2_-3",
+   "caras": 286517
+  },
+  {
+   "clave": "2_-2",
+   "archivo": "zonas/zona_2_-2.glb",
+   "caja": [
+    391.2,
+    196.5,
+    608.8,
+    461.9
+   ],
+   "lejos": "lejos_2_-2",
+   "caras": 250024
+  },
+  {
+   "clave": "2_-1",
+   "archivo": "zonas/zona_2_-1.glb",
+   "caja": [
+    380.9,
+    -20.7,
+    620.0,
+    202.3
+   ],
+   "lejos": "lejos_2_-1",
+   "caras": 120969
+  },
+  {
+   "clave": "2_0",
+   "archivo": "zonas/zona_2_0.glb",
+   "caja": [
+    395.0,
+    -202.1,
+    599.0,
+    14.6
+   ],
+   "lejos": "lejos_2_0",
+   "caras": 45567
+  },
+  {
+   "clave": "2_1",
+   "archivo": "zonas/zona_2_1.glb",
+   "caja": [
+    401.0,
+    -400.1,
+    599.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7722
+  },
+  {
+   "clave": "2_2",
+   "archivo": "zonas/zona_2_2.glb",
+   "caja": [
+    401.0,
+    -556.1,
+    599.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6006
+  },
+  {
+   "clave": "3_-5",
+   "archivo": "zonas/zona_3_-5.glb",
+   "caja": [
+    593.9,
+    799.9,
+    803.0,
+    871.9
+   ],
+   "lejos": "lejos_3_-5",
+   "caras": 4136
+  },
+  {
+   "clave": "3_-4",
+   "archivo": "zonas/zona_3_-4.glb",
+   "caja": [
+    589.0,
+    584.8,
+    827.3,
+    799.9
+   ],
+   "lejos": "lejos_3_-4",
+   "caras": 123491
+  },
+  {
+   "clave": "3_-3",
+   "archivo": "zonas/zona_3_-3.glb",
+   "caja": [
+    584.5,
+    368.3,
+    846.4,
+    612.4
+   ],
+   "lejos": "lejos_3_-3",
+   "caras": 214404
+  },
+  {
+   "clave": "3_-2",
+   "archivo": "zonas/zona_3_-2.glb",
+   "caja": [
+    591.5,
+    193.7,
+    823.4,
+    422.1
+   ],
+   "lejos": "lejos_3_-2",
+   "caras": 147388
+  },
+  {
+   "clave": "3_-1",
+   "archivo": "zonas/zona_3_-1.glb",
+   "caja": [
+    581.6,
+    1.9,
+    803.2,
+    227.3
+   ],
+   "lejos": "lejos_3_-1",
+   "caras": 65309
+  },
+  {
+   "clave": "3_0",
+   "archivo": "zonas/zona_3_0.glb",
+   "caja": [
+    599.0,
+    -202.1,
+    803.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 7891
+  },
+  {
+   "clave": "3_1",
+   "archivo": "zonas/zona_3_1.glb",
+   "caja": [
+    599.0,
+    -400.1,
+    803.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7854
+  },
+  {
+   "clave": "3_2",
+   "archivo": "zonas/zona_3_2.glb",
+   "caja": [
+    599.0,
+    -556.1,
+    803.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6110
+  },
+  {
+   "clave": "4_-5",
+   "archivo": "zonas/zona_4_-5.glb",
+   "caja": [
+    797.0,
+    799.9,
+    1001.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2808
+  },
+  {
+   "clave": "4_-4",
+   "archivo": "zonas/zona_4_-4.glb",
+   "caja": [
+    775.3,
+    575.1,
+    1038.4,
+    799.9
+   ],
+   "lejos": "lejos_4_-4",
+   "caras": 54860
+  },
+  {
+   "clave": "4_-3",
+   "archivo": "zonas/zona_4_-3.glb",
+   "caja": [
+    769.5,
+    380.8,
+    1056.2,
+    630.3
+   ],
+   "lejos": "lejos_4_-3",
+   "caras": 159309
+  },
+  {
+   "clave": "4_-2",
+   "archivo": "zonas/zona_4_-2.glb",
+   "caja": [
+    756.2,
+    184.8,
+    1017.8,
+    417.8
+   ],
+   "lejos": "lejos_4_-2",
+   "caras": 61575
+  },
+  {
+   "clave": "4_-1",
+   "archivo": "zonas/zona_4_-1.glb",
+   "caja": [
+    773.9,
+    -15.4,
+    1059.3,
+    242.9
+   ],
+   "lejos": "lejos_4_-1",
+   "caras": 14805
+  },
+  {
+   "clave": "4_0",
+   "archivo": "zonas/zona_4_0.glb",
+   "caja": [
+    797.0,
+    -202.1,
+    1001.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 8039
+  },
+  {
+   "clave": "4_1",
+   "archivo": "zonas/zona_4_1.glb",
+   "caja": [
+    797.0,
+    -400.1,
+    1001.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7824
+  },
+  {
+   "clave": "4_2",
+   "archivo": "zonas/zona_4_2.glb",
+   "caja": [
+    797.0,
+    -556.1,
+    1001.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6084
+  },
+  {
+   "clave": "5_-5",
+   "archivo": "zonas/zona_5_-5.glb",
+   "caja": [
+    1001.0,
+    799.9,
+    1199.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2772
+  },
+  {
+   "clave": "5_-4",
+   "archivo": "zonas/zona_5_-4.glb",
+   "caja": [
+    940.2,
+    570.7,
+    1208.7,
+    799.9
+   ],
+   "lejos": "lejos_5_-4",
+   "caras": 20765
+  },
+  {
+   "clave": "5_-3",
+   "archivo": "zonas/zona_5_-3.glb",
+   "caja": [
+    941.7,
+    397.7,
+    1207.9,
+    614.3
+   ],
+   "lejos": "lejos_5_-3",
+   "caras": 49757
+  },
+  {
+   "clave": "5_-2",
+   "archivo": "zonas/zona_5_-2.glb",
+   "caja": [
+    976.8,
+    159.3,
+    1199.0,
+    403.9
+   ],
+   "lejos": "lejos_5_-2",
+   "caras": 10680
+  },
+  {
+   "clave": "5_-1",
+   "archivo": "zonas/zona_5_-1.glb",
+   "caja": [
+    954.7,
+    -15.4,
+    1199.0,
+    242.8
+   ],
+   "lejos": "lejos_5_-1",
+   "caras": 11515
+  },
+  {
+   "clave": "5_0",
+   "archivo": "zonas/zona_5_0.glb",
+   "caja": [
+    1001.0,
+    -202.1,
+    1199.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 7755
+  },
+  {
+   "clave": "5_1",
+   "archivo": "zonas/zona_5_1.glb",
+   "caja": [
+    1001.0,
+    -400.1,
+    1199.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7722
+  },
+  {
+   "clave": "5_2",
+   "archivo": "zonas/zona_5_2.glb",
+   "caja": [
+    1001.0,
+    -556.1,
+    1199.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6006
+  },
+  {
+   "clave": "6_-5",
+   "archivo": "zonas/zona_6_-5.glb",
+   "caja": [
+    1199.0,
+    799.9,
+    1403.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2820
+  },
+  {
+   "clave": "6_-4",
+   "archivo": "zonas/zona_6_-4.glb",
+   "caja": [
+    1189.9,
+    512.7,
+    1466.2,
+    799.9
+   ],
+   "lejos": "lejos_6_-4",
+   "caras": 15593
+  },
+  {
+   "clave": "6_-3",
+   "archivo": "zonas/zona_6_-3.glb",
+   "caja": [
+    1177.4,
+    397.9,
+    1453.5,
+    680.0
+   ],
+   "lejos": "lejos_6_-3",
+   "caras": 21343
+  },
+  {
+   "clave": "6_-2",
+   "archivo": "zonas/zona_6_-2.glb",
+   "caja": [
+    1199.0,
+    199.9,
+    1403.0,
+    403.9
+   ],
+   "lejos": null,
+   "caras": 7854
+  },
+  {
+   "clave": "6_-1",
+   "archivo": "zonas/zona_6_-1.glb",
+   "caja": [
+    1199.0,
+    1.9,
+    1403.0,
+    199.9
+   ],
+   "lejos": null,
+   "caras": 7755
+  },
+  {
+   "clave": "6_0",
+   "archivo": "zonas/zona_6_0.glb",
+   "caja": [
+    1199.0,
+    -202.1,
+    1403.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 7891
+  },
+  {
+   "clave": "6_1",
+   "archivo": "zonas/zona_6_1.glb",
+   "caja": [
+    1199.0,
+    -400.1,
+    1403.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7854
+  },
+  {
+   "clave": "6_2",
+   "archivo": "zonas/zona_6_2.glb",
+   "caja": [
+    1199.0,
+    -556.1,
+    1403.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6110
+  },
+  {
+   "clave": "7_-5",
+   "archivo": "zonas/zona_7_-5.glb",
+   "caja": [
+    1397.0,
+    799.7,
+    1601.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 2880
+  },
+  {
+   "clave": "7_-4",
+   "archivo": "zonas/zona_7_-4.glb",
+   "caja": [
+    1335.2,
+    545.2,
+    1635.9,
+    805.2
+   ],
+   "lejos": "lejos_7_-4",
+   "caras": 11721
+  },
+  {
+   "clave": "7_-3",
+   "archivo": "zonas/zona_7_-3.glb",
+   "caja": [
+    1308.1,
+    397.9,
+    1602.7,
+    697.4
+   ],
+   "lejos": "lejos_7_-3",
+   "caras": 10032
+  },
+  {
+   "clave": "7_-2",
+   "archivo": "zonas/zona_7_-2.glb",
+   "caja": [
+    1397.0,
+    199.9,
+    1601.0,
+    403.9
+   ],
+   "lejos": null,
+   "caras": 7824
+  },
+  {
+   "clave": "7_-1",
+   "archivo": "zonas/zona_7_-1.glb",
+   "caja": [
+    1397.0,
+    1.9,
+    1601.0,
+    199.9
+   ],
+   "lejos": null,
+   "caras": 7722
+  },
+  {
+   "clave": "7_0",
+   "archivo": "zonas/zona_7_0.glb",
+   "caja": [
+    1397.0,
+    -202.1,
+    1601.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 7854
+  },
+  {
+   "clave": "7_1",
+   "archivo": "zonas/zona_7_1.glb",
+   "caja": [
+    1397.0,
+    -400.1,
+    1601.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 7824
+  },
+  {
+   "clave": "7_2",
+   "archivo": "zonas/zona_7_2.glb",
+   "caja": [
+    1397.0,
+    -556.1,
+    1601.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 6084
+  },
+  {
+   "clave": "8_-5",
+   "archivo": "zonas/zona_8_-5.glb",
+   "caja": [
+    1601.0,
+    799.9,
+    1721.0,
+    871.9
+   ],
+   "lejos": null,
+   "caras": 1680
+  },
+  {
+   "clave": "8_-4",
+   "archivo": "zonas/zona_8_-4.glb",
+   "caja": [
+    1561.7,
+    596.4,
+    1721.0,
+    799.9
+   ],
+   "lejos": "lejos_8_-4",
+   "caras": 6614
+  },
+  {
+   "clave": "8_-3",
+   "archivo": "zonas/zona_8_-3.glb",
+   "caja": [
+    1601.0,
+    397.9,
+    1721.0,
+    603.9
+   ],
+   "lejos": null,
+   "caras": 4736
+  },
+  {
+   "clave": "8_-2",
+   "archivo": "zonas/zona_8_-2.glb",
+   "caja": [
+    1601.0,
+    199.9,
+    1721.0,
+    403.9
+   ],
+   "lejos": null,
+   "caras": 4680
+  },
+  {
+   "clave": "8_-1",
+   "archivo": "zonas/zona_8_-1.glb",
+   "caja": [
+    1601.0,
+    1.9,
+    1721.0,
+    199.9
+   ],
+   "lejos": null,
+   "caras": 4620
+  },
+  {
+   "clave": "8_0",
+   "archivo": "zonas/zona_8_0.glb",
+   "caja": [
+    1601.0,
+    -202.1,
+    1721.0,
+    1.9
+   ],
+   "lejos": null,
+   "caras": 4700
+  },
+  {
+   "clave": "8_1",
+   "archivo": "zonas/zona_8_1.glb",
+   "caja": [
+    1601.0,
+    -400.1,
+    1721.0,
+    -196.1
+   ],
+   "lejos": null,
+   "caras": 4680
+  },
+  {
+   "clave": "8_2",
+   "archivo": "zonas/zona_8_2.glb",
+   "caja": [
+    1601.0,
+    -556.1,
+    1721.0,
+    -400.1
+   ],
+   "lejos": null,
+   "caras": 3640
+  }
+ ]
+}

@@ -8,6 +8,10 @@
   retocada casa a casa. La usa `tools/blender/catastro.py`; se guarda en `.cache/catastro`.
 - **Los ejes y los nombres de las calles:** © colaboradores de OpenStreetMap, con licencia Open Database License
   (https://www.openstreetmap.org/copyright). Los usa `tools/blender/catastro.py`; se guardan en `.cache/osm`.
+- **El relieve** (solo en la escena del pueblo entero): Modelo Digital del Terreno MDT05, © Instituto Geográfico
+  Nacional (IGN/CNIG), con licencia Creative Commons Attribution 4.0, de su servicio WCS
+  (https://servicios.idee.es/wcs-inspire/mdt). Se ha cambiado: suavizado y pasado a una rejilla de 6 m. Lo usa
+  `tools/relieve.py`; se guarda en `.cache/relieve`.
 
 Ojo para el producto: las dos licencias piden que el crédito se vea. Ahora solo está aquí; dentro del juego no se
 enseña en ningún sitio.

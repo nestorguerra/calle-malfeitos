@@ -77,7 +77,7 @@ const MODELOS = {
 // proyección exacta; la levanta tools/blender/guarena.sh en escenas/guarena. El cielo y los sonidos, los de siempre
 MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guarena.glb', colision: './escenas/guarena/guarena_colision.glb',
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
-  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/tejados.glb'],
+  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
   relieve: './escenas/guarena/relieve.json' }; // (las cuestas de verdad, al dibujar: src/relieve.js)
 const modelo = MODELOS[q.get('escena')] ? { ...MODELOS[q.get('escena')], ...(q.get('modelo') ? { modelo: q.get('modelo') } : {}) }
   : (q.get('modelo') ? { modelo: q.get('modelo') } : null); // (?modelo= también cambia el .glb de una escena: para probar variantes)
@@ -1011,6 +1011,7 @@ if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
   const lejos = new Map();
   instancias.get(A['parte' + iZ('/lejos.glb')])?.findComponents('render').forEach((r) => lejos.set(r.entity.name, r));
   const radio = parseFloat(q.get('radio') || (movil ? '160' : '330')), suelta = radio + 80, todas = q.get('zonas') === '0';
+  const tope = parseFloat(q.get('caras') || (escena.caras ? escena.caras[movil ? 0 : 1] : 0)); // (caras de zona cargadas a la vez, como mucho: [móvil, ordenador])
   const estado = new Map(); // (clave → 'cargando' o {e, asset})
   const dist = (z, p) => { const [x0, z0, x1, z1] = z.caja; return Math.hypot(Math.max(0, x0 - p.x, p.x - x1), Math.max(0, z0 - p.z, p.z - z1)); };
   const falsa = (b) => { if (b?.storage) b.storage = { byteLength: b.storage.byteLength }; }; // (sin la copia de JavaScript; destroy() aún mira su tamaño)
@@ -1045,8 +1046,15 @@ if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
   const repasar = async (p, inicial) => {
     if (ocupado) return; ocupado = true;
     try {
-      if (!todas) for (const z of Z.zonas) if (dist(z, p) > suelta) soltarZona(z);
-      const faltan = Z.zonas.filter((z) => !estado.has(z.clave) && (todas || dist(z, p) < radio)).sort((a, b) => dist(a, p) - dist(b, p));
+      // (hasta dónde se carga: el radio, o menos si las zonas de alrededor pesan más que el tope de caras de la escena.
+      // En el centro del pueblo una zona pesa cinco veces lo que una de Malfeitos, y con el radio solo se iba la memoria)
+      let r = radio;
+      if (tope && !todas) {
+        let suma = 0;
+        for (const z of Z.zonas.filter((z) => dist(z, p) < radio).sort((a, b) => dist(a, p) - dist(b, p))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z, p); break; } }
+      }
+      if (!todas) for (const z of Z.zonas) if (dist(z, p) > (r < radio ? r + 30 : suelta)) soltarZona(z);
+      const faltan = Z.zonas.filter((z) => !estado.has(z.clave) && (todas || dist(z, p) < r)).sort((a, b) => dist(a, p) - dist(b, p));
       if (inicial) await Promise.all(faltan.map(cargar)); else if (faltan.length) await cargar(faltan[0]); // (de una en una al andar: sin tirones)
     } finally { ocupado = false; }
   };
