@@ -147,6 +147,7 @@ const enMemoria = (async () => {
   // (en el enlace, los .glb grandes pueden ir en trozos de medio mega, <archivo>.p<k>.wasm, cuando la subida de archivos
   // grandes se corta: la página lleva cuántos en window.TROZOS y aquí se juntan; tools/despliegue/trocear.py)
   const leer = async (u, cuenta) => {
+    await window.precargando?.get(new URL(u, location.href).href); // (si la precarga de 388 Pueblos aún lo baja, se espera: src/precarga.js)
     const r = await fetch(u);
     if (!r.ok || !r.body) throw new Error(`${u}: ${r.status}`);
     total[cuenta] = (total[cuenta] || 0) + (+r.headers.get('content-length') || 0); hecho[cuenta] = hecho[cuenta] || 0;
@@ -229,6 +230,7 @@ if (foto) {
   escena.sol = escena.sol || '55,-60';
 }
 const mem = await enMemoria, de = (u) => mem[u] || u;
+marca('bajado');
 if (window.esperaConstruir) await window.esperaConstruir; // (dentro de la web de 388 Pueblos, se construye cuando ella lo dice: src/desde388.js)
 const A = {
   ...(escena.splat ? { splat: new Asset('splat', 'gsplat', { url: escena.splat }) } : {}),
@@ -1122,7 +1124,7 @@ if (escena.dentro && q.get('dentro') !== '0') {
 const bajarGlb = async (u) => { // (un .glb, entero o en trozos —window.TROZOS—, a una URL de memoria)
   const base = u.replace(/\.wasm$/, ''), tr = window.TROZOS?.[base], [n, h] = Array.isArray(tr) ? tr : [tr, null];
   const urls = n ? Array.from({ length: n }, (_, k) => `${base}${h ? '.' + h : ''}.p${k}.wasm`) : [u];
-  const partes = await Promise.all(urls.map(async (x) => { const r = await fetch(x); if (!r.ok) throw new Error(`${x}: ${r.status}`); return r.arrayBuffer(); }));
+  const partes = await Promise.all(urls.map(async (x) => { await window.precargando?.get(new URL(x, location.href).href); const r = await fetch(x); if (!r.ok) throw new Error(`${x}: ${r.status}`); return r.arrayBuffer(); }));
   return URL.createObjectURL(new Blob(partes));
 };
 let zonas = null;

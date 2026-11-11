@@ -29,6 +29,8 @@ if (EDITOR) {
   // (dentro de la web de 388 Pueblos, con ?desde=388: su entrada, antes de que arranque la calle; con ?foto388=, para
   // sacar sus fotos: src/desde388.js)
   const q388 = new URLSearchParams(location.search);
+  // (con ?precarga=1, la web de 388 Pueblos lo monta solo para bajar por detrás: no arranca hasta que dice g388:juega)
+  if (window.parent !== window && q388.get('desde') === '388' && q388.get('precarga') === '1') await (await import('./precarga.js')).precargar();
   if ((window.parent !== window && q388.get('desde') === '388') || q388.get('foto388')) await import('./desde388.js');
   await import('./main.js');
 }

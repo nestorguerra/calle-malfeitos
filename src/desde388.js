@@ -70,13 +70,12 @@ if (q.get('foto388')) {
     window.foto388 = true;
   })();
 } else if (padre && q.get('desde') === '388') {
-  // la interfaz del juego, fuera hasta aterrizar (el cuadro de medidas, siempre: es para medir, no para jugar)
+  // la interfaz del juego, fuera (el cuadro de medidas, siempre: es para medir, no para jugar; la ayuda de las teclas
+  // y los créditos, también al aterrizar)
   const estilo = document.createElement('style');
   estilo.textContent = `#hud { display: none !important; }
     #carga { opacity: 0 !important; }
-    #ayuda, #creditos { opacity: 0 !important; transition: opacity 1.2s ease; pointer-events: none; }
-    html.aterrizado #ayuda { opacity: .85 !important; }
-    html.aterrizado #creditos { opacity: .8 !important; pointer-events: auto; }`;
+    #ayuda, #creditos { display: none !important; }`;   /* (sin la ayuda de las teclas ni los créditos: que solo se vea a la chica; a petición, 11-11-2026. Los créditos, en la web de 388 Pueblos) */
   document.head.appendChild(estilo);
 
   let construir, entra = null;
@@ -118,7 +117,7 @@ if (q.get('foto388')) {
       for (const z of Z.zonas.filter((z) => dist(z) < radio).sort((a, b) => dist(a) - dist(b))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z); break; } }
       const base = esc.zonas.slice(0, esc.zonas.lastIndexOf('/') + 1);
       await Promise.all(Z.zonas.filter((z) => dist(z) < r).map(async (z) => {
-        const resp = await fetch(base + z.archivo);
+        await window.precargando?.get(new URL(base + z.archivo, location.href).href); const resp = await fetch(base + z.archivo);
         zon.total += +resp.headers.get('content-length') || 0;
         const lector = resp.body.getReader();
         for (;;) { const { done, value } = await lector.read(); if (done) break; zon.hecho += value.length; }
@@ -155,7 +154,7 @@ if (q.get('foto388')) {
     // texturas), y a la web: ya se puede fundir
     let { aspecto } = ponerEnLaFoto();
     await fotogramas(app, 12);
-    decir('g388:listo');
+    decir('g388:listo', { tiempos: window.tiempos, recursos: performance.getEntriesByType('resource').filter((e) => e.transferSize > 1e6).length });   // (los tiempos de la obra y cuántos archivos grandes bajó de la red: para medir)
     // el vídeo (o la foto), igual que lo lleva la web, hasta que acaba el fundido
     const orden = await new Promise((r) => { entra = r; setTimeout(() => r({ tv: 0, vel: 0, s: 1, r: 0, t: Date.now(), cruce: 0 }), 60000); });
     const tv0 = +orden.tv || 0, vel = orden.vel === undefined ? 0 : +orden.vel, s0 = +orden.s || 1, r0 = +orden.r || 0;
