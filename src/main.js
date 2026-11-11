@@ -446,6 +446,9 @@ if (A.modelo) {
     // (la oclusión horneada de tools/blender/hornear.py: solo oscurece la luz de ambiente; ?ocl=0 la quita, ?ocl=0.5 a medias)
     const ocl = q.get('ocl');
     if (ocl !== null) asset.resource.materials.forEach((m) => { const mt = m.resource; if (!mt?.aoMap) return; if (ocl === '0') mt.aoMap = null; else mt.aoIntensity = parseFloat(ocl); mt.update(); });
+    // (la suciedad de fuera de la iglesia —churretes, humedad del pie, manchas—, en el alfa de su oclusión horneada: detalle del
+    // color que multiplica, donde 1 lo deja igual; tools/blender/iglesia_suciedad.py. Sin textura nueva. ?suciedad=0 la quita)
+    if (q.get('suciedad') !== '0') asset.resource.materials.forEach((m) => { const mt = m.resource; if (!mt?.aoMap || !/^iglesia_.+_iglesia$/.test(mt.name)) return; mt.diffuseDetailMap = mt.aoMap; mt.diffuseDetailMapUv = mt.aoMapUv; mt.diffuseDetailMapChannel = 'aaa'; mt.diffuseDetailMode = 'mul'; mt.update(); });
     mod.findComponents('render').forEach((render) => {
       if (ocultar.includes(render.entity.name)) render.enabled = false;
       for (const mi of render.meshInstances) if (sinSombra(mi.material?.name)) mi.castShadow = false;
