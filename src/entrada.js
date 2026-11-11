@@ -26,7 +26,9 @@ if (EDITOR) {
     if (guardado('personaje_en_calle') === '1' && guardado('personaje')) boton.textContent = 'Cambiar de personaje';
     boton.addEventListener('click', () => window.irA(true));
   }
-  // (dentro de la web de 388 Pueblos, con ?desde=388: su entrada, antes de que arranque la calle; src/desde388.js)
-  if (window.parent !== window && new URLSearchParams(location.search).get('desde') === '388') await import('./desde388.js');
+  // (dentro de la web de 388 Pueblos, con ?desde=388: su entrada, antes de que arranque la calle; con ?foto388=, para
+  // sacar sus fotos: src/desde388.js)
+  const q388 = new URLSearchParams(location.search);
+  if ((window.parent !== window && q388.get('desde') === '388') || q388.get('foto388')) await import('./desde388.js');
   await import('./main.js');
 }

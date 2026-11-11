@@ -1,25 +1,75 @@
 // La entrada desde la web de 388 Pueblos (https://pueblos388.onrender.com): el juego va en un marco de esa web, con
-// ?desde=388, y no se ve hasta que la web lo enseña. Solo hace algo en ese caso; sin marco, o sin ?desde=388, no se carga.
-// Lo pidió el usuario el 10-11-2026: que «Guareña» y «Jugar» lleven al pueblo entero con un paso «realmente
-// espectacular», sin cortes: la cámara de la web baja por su maqueta, rodea la torre de Santa María y entra en una
-// bruma de mañana sobre la calle Malfeitos; dentro de la bruma la web deja de dibujar y aquí se construye el pueblo; la
-// cámara de este juego sale de la bruma ya en el pueblo de verdad, baja entre los tejados por la calle y aterriza detrás
-// de la chica, mirando calle abajo (al sur, la calle larga), y empieza el juego.
-//   juego → web  g388:hola · g388:progreso {p, descargado} (lo bajado, de 0 a 1) · g388:obra {p} (lo construido)
-//                g388:listo (la cámara ya está en la bruma, quieta y con todo dibujado) · g388:aterriza · g388:error {msg}
-//   web → juego  g388:construye (la web ya está en la bruma: que se construya; hasta entonces solo se baja, que en muchos
+// ?desde=388, y no se ve hasta que la web lo enseña. Solo hace algo en ese caso (o con ?foto388=, para sacar las fotos).
+// Lo pidió el usuario el 10-11-2026 («realmente espectacular», sin cortes) y lo corrigió el 11-11-2026: «demasiado lento,
+// y se queda atascado; tienes que ir acercándote poco a poco y que sea todo fluido, como una película continua, sin
+// cortes ni momentos en blanco». Así que no hay bruma ni paradas: la cámara de la web baja
+// sin frenar hasta el punto de la FOTO (sobre la calle Malfeitos, mirando hacia la chica) y allí se funde, en marcha,
+// con un VÍDEO grabado por este mismo juego (la web lo tiene: 388-pueblos, web/assets/juego/; lo graba
+// tools/foto388.py): la cámara sigue avanzando calle arriba, frenando poco a poco, mientras aquí se construye el pueblo
+// (el vídeo lo pinta el navegador aparte: no da tirones aunque todo esté ocupado). Al acabar, esta cámara se pone donde
+// va el vídeo en ese instante, la web los funde (son la misma imagen) y la cámara sigue: baja por la calle hasta detrás
+// de la chica y empieza el juego. Si el vídeo no puede verse, la web usa la foto, que se acerca con un zoom (s, r).
+//   juego → web  g388:hola · g388:progreso {p, descargado} · g388:obra {p} · g388:listo · g388:aterriza · g388:error {msg}
+//   web → juego  g388:construye (la foto ya tapa la web: que se construya; antes, solo se descarga, que en muchos
 //                navegadores el marco y la web comparten hilo y la obra congelaría la cámara de la web)
-//                g388:baja {dur} (la bruma empieza a abrirse: la cámara baja hasta la chica en dur segundos)
+//                g388:entra {tv, vel, s, r, t, cruce} (en el instante t de Date.now() el vídeo va por el segundo tv y
+//                avanza a vel segundos por segundo —1 si se reproduce, 0 si ya acabó—, con un zoom s que crece e^r por
+//                segundo; dentro de «cruce» segundos el fundido habrá acabado: entonces esta cámara echa a volar)
 // La espera para construir está en src/main.js (window.esperaConstruir, justo después de las descargas).
 import { Vec3 } from 'playcanvas';
+
+// la foto: dónde está la cámara, a dónde mira y con qué campo vertical se sacó cada una (la web lleva lo mismo, en
+// web/js/jugar.js: si se cambia aquí, hay que volver a sacar las fotos con tools/foto388.py y cambiarlo allí)
+export const FOTO = { pos: [2, 26, 84], mira: [1, 1, 12], bruma: 0.0009,
+  apaisada: { ancho: 2560, alto: 1440, fov: 55 }, vertical: { ancho: 1440, alto: 2560, fov: 80 } };
+// el campo vertical con que se ve la foto a pantalla completa (recortada como «cover») en una pantalla de este aspecto
+export function fovFoto(aspecto) {
+  const f = aspecto >= 1 ? FOTO.apaisada : FOTO.vertical, af = f.ancho / f.alto, t = Math.tan(f.fov * Math.PI / 360);
+  return aspecto >= af ? 2 * Math.atan(t * af / aspecto) * 180 / Math.PI : f.fov;
+}
+const lente = (fov, z) => 2 * Math.atan(Math.tan(fov * Math.PI / 360) / z) * 180 / Math.PI; // (el objetivo cerrado z veces)
+// el vídeo: desde el punto de la foto la cámara sigue hacia «hasta», frenando (pos(t) = pos + (1 − e^(−t/tau))·(hasta −
+// pos)), mirando siempre a FOTO.mira. La web lleva lo mismo
+export const VIDEO = { dur: 16, tau: 9, hasta: [1.5, 14, 44], fps: 30 };
+export function enVideo(t) {
+  t = Math.max(0, Math.min(VIDEO.dur, t));
+  const e = Math.exp(-t / VIDEO.tau), P = FOTO.pos, Q = VIDEO.hasta;
+  return { pos: P.map((p, i) => p + (1 - e) * (Q[i] - p)), vel: P.map((p, i) => (e / VIDEO.tau) * (Q[i] - p)) };
+}
 
 const q = new URLSearchParams(location.search);
 const padre = window.parent !== window ? window.parent : null;
 // (de quién se aceptan las órdenes: la web publicada y, para probar, una en local)
 const DE_FIAR = /^(https:\/\/pueblos388\.onrender\.com|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 const decir = (type, mas = {}) => { try { padre.postMessage({ type, ...mas }, '*'); } catch (e) { /* sin web */ } }; // (solo progreso: nada privado)
+const fotogramas = (app, n) => new Promise((r) => { let k = 0; const f = () => { if (++k >= n) { app.off('frameend', f); r(); } }; app.on('frameend', f); });
+const listo = () => new Promise((r) => { const m = setInterval(() => { if (window.tiempos?.listo !== undefined && window.foto?.tpc) { clearInterval(m); r(); } }, 60); });
 
-if (padre && q.get('desde') === '388') {
+// la cámara en el punto de la foto, con su bruma (más fina que la de la calle: desde arriba, la de siempre lo blanqueaba)
+function ponerEnLaFoto(z = 1) {
+  const { app, tpc } = window.foto, cam = app.root.findByName('camara');
+  tpc.enabled = false;
+  const aspecto = app.graphicsDevice.width / Math.max(1, app.graphicsDevice.height);
+  cam.setPosition(...FOTO.pos); cam.lookAt(...FOTO.mira);
+  cam.camera.fov = lente(fovFoto(aspecto), z);
+  app.scene.fog.density = FOTO.bruma;
+  return { cam, aspecto };
+}
+
+if (q.get('foto388')) {
+  // para sacar la foto y el vídeo (tools/foto388.py): el juego normal, y al acabar de construir, la cámara en el punto de
+  // la foto. Para el vídeo, window.video388(t) pone la cámara en su segundo t (la vida, quieta: se graba fotograma a
+  // fotograma, más despacio que en tiempo real) y espera a que esté dibujado
+  (async () => {
+    await listo(); const { app } = window.foto; ponerEnLaFoto(); await fotogramas(app, 30);
+    window.video388 = async (t) => {
+      app.timeScale = 0;
+      const { cam } = ponerEnLaFoto(); cam.setPosition(...enVideo(t).pos); cam.lookAt(...FOTO.mira);
+      await fotogramas(app, 2); return true;
+    };
+    window.foto388 = true;
+  })();
+} else if (padre && q.get('desde') === '388') {
   // la interfaz del juego, fuera hasta aterrizar (el cuadro de medidas, siempre: es para medir, no para jugar)
   const estilo = document.createElement('style');
   estilo.textContent = `#hud { display: none !important; }
@@ -29,16 +79,15 @@ if (padre && q.get('desde') === '388') {
     html.aterrizado #creditos { opacity: .8 !important; pointer-events: auto; }`;
   document.head.appendChild(estilo);
 
-  let construir, baja = null;
+  let construir, entra = null;
   window.esperaConstruir = new Promise((r) => { construir = r; });
   addEventListener('message', (e) => {
     if (e.source !== padre || !DE_FIAR.test(e.origin) || !e.data || typeof e.data.type !== 'string') return;
     if (e.data.type === 'g388:construye') construir();
-    if (e.data.type === 'g388:baja') baja?.(Math.min(14, Math.max(3, +e.data.dur || 7.5)));
+    if (e.data.type === 'g388:entra') entra?.(e.data);
   });
-  // (si la web no llega a decirlo, que no se quede sin construir)
-  setTimeout(() => construir(), 90000);
-  decir('g388:hola', { v: 1 });
+  setTimeout(() => construir(), 90000); // (si la web no llega a decirlo, que no se quede sin construir)
+  decir('g388:hola', { v: 2 });
 
   // ---- lo bajado: los archivos grandes (el aviso de src/main.js lleva los megas) y las zonas de la calle de partida, que
   // el juego bajaría después de construir y aquí se piden ya, mientras la web vuela (quedan en la caché del navegador)
@@ -68,8 +117,7 @@ if (padre && q.get('desde') === '388') {
       let r = radio, suma = 0;
       for (const z of Z.zonas.filter((z) => dist(z) < radio).sort((a, b) => dist(a) - dist(b))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z); break; } }
       const base = esc.zonas.slice(0, esc.zonas.lastIndexOf('/') + 1);
-      const lista = Z.zonas.filter((z) => dist(z) < r);
-      await Promise.all(lista.map(async (z) => {
+      await Promise.all(Z.zonas.filter((z) => dist(z) < r).map(async (z) => {
         const resp = await fetch(base + z.archivo);
         zon.total += +resp.headers.get('content-length') || 0;
         const lector = resp.body.getReader();
@@ -86,73 +134,74 @@ if (padre && q.get('desde') === '388') {
     if (p === 1) clearInterval(avisar);
   }, 200);
 
-  // ---- la obra: por dónde va (src/main.js apunta cada fase en window.tiempos), y al acabar, la cámara a la bruma
+  // ---- la obra: por dónde va (src/main.js apunta cada fase en window.tiempos)
   const fases = [['activos', 0.35], ['colision', 0.5], ['listo', 1]];
   let obraDicha = 0;
   const mirar = setInterval(() => {
     const t = window.tiempos || {};
     let p = 0; for (const [k, v] of fases) if (t[k] !== undefined) p = v;
     if (p > obraDicha) { obraDicha = p; decir('g388:obra', { p }); }
-    if (t.listo !== undefined && window.foto?.tpc) { clearInterval(mirar); tomarCamara(); }
-  }, 60);
+    if (p === 1) clearInterval(mirar);
+  }, 100);
   addEventListener('error', (e) => decir('g388:error', { msg: String(e.message || e.type).slice(0, 200) }));
 
-  const fotogramas = (app, n) => new Promise((r) => { let k = 0; const f = () => { if (++k >= n) { app.off('frameend', f); r(); } }; app.on('frameend', f); });
-  const suave = (x) => x * x * (3 - 2 * x);
-
-  async function tomarCamara() {
-    const { app, tpc, muneco } = window.foto, cam = app.root.findByName('camara');
-    // el aterrizaje, mirando calle abajo (al sur): lo calcula el propio controlador (con su distancia, su altura y los
-    // muros), así al devolverle la cámara no hay salto. La chica, de espaldas a la cámara (el giro no se ve: aún no se
-    // enseña el juego)
-    const yaw = tpc._yaw + 180;
-    tpc._yaw = yaw; tpc._camInitialized = false;
-    if (muneco && tpc._modelYaw !== undefined) tpc._modelYaw -= 180;
-    await fotogramas(app, 3);
-    const F = cam.getPosition().clone(), fwd = cam.forward.clone();
-    // la salida de la bruma: 34 m por encima y 82 m por detrás, sobre los tejados del principio de la calle; la mirada,
-    // de la calle por delante de la chica a su espalda, y bajando
-    const d = new Vec3(fwd.x, 0, fwd.z).normalize(), arriba = new Vec3(0, 1, 0);
-    const P0 = F.clone().add(d.clone().mulScalar(-82)).add(arriba.clone().mulScalar(32));
-    const P1 = F.clone().add(d.clone().mulScalar(-52)).add(arriba.clone().mulScalar(24));
-    const P2 = F.clone().add(d.clone().mulScalar(-14)).add(arriba.clone().mulScalar(4));
-    const P3 = F;
-    const L0 = F.clone().add(d.clone().mulScalar(18)).add(arriba.clone().mulScalar(-F.y));
-    const L1 = F.clone().add(fwd.clone().mulScalar(24));
-    tpc.enabled = false;
-    const poner = (u, w) => {
-      const a = 1 - u; // (la curva de Bézier de la bajada)
-      const p = new Vec3(
-        a * a * a * P0.x + 3 * a * a * u * P1.x + 3 * a * u * u * P2.x + u * u * u * P3.x,
-        a * a * a * P0.y + 3 * a * a * u * P1.y + 3 * a * u * u * P2.y + u * u * u * P3.y,
-        a * a * a * P0.z + 3 * a * a * u * P1.z + 3 * a * u * u * P2.z + u * u * u * P3.z);
-      const l = new Vec3().lerp(L0, L1, w);
-      cam.setPosition(p); cam.lookAt(l);
-    };
-    poner(0, 0);
-    // unos fotogramas quietos en la bruma (se compilan los sombreadores de lo que se ve y se suben las texturas), y a
-    // la web: ya se puede abrir la bruma
+  (async () => {
+    await listo();
+    const { app, tpc } = window.foto;
+    const cam = app.root.findByName('camara');
+    // el aterrizaje: donde el controlador pone la cámara al empezar (detrás de la chica, mirando calle arriba)
+    const F = cam.getPosition().clone(), fwd = cam.forward.clone(), fovJuego = cam.camera.fov, brumaJuego = app.scene.fog.density;
+    // al punto de la foto, quieta; unos fotogramas (se compilan los sombreadores de lo que se ve y se suben las
+    // texturas), y a la web: ya se puede fundir
+    let { aspecto } = ponerEnLaFoto();
     await fotogramas(app, 12);
     decir('g388:listo');
-    const dur = await new Promise((r) => { baja = r; });
-    // la bajada: sale con la velocidad que traía la web (rápido) y se posa despacio detrás de la chica
+    // el vídeo (o la foto), igual que lo lleva la web, hasta que acaba el fundido
+    const orden = await new Promise((r) => { entra = r; setTimeout(() => r({ tv: 0, vel: 0, s: 1, r: 0, t: Date.now(), cruce: 0 }), 60000); });
+    const tv0 = +orden.tv || 0, vel = orden.vel === undefined ? 0 : +orden.vel, s0 = +orden.s || 1, r0 = +orden.r || 0;
+    const t0 = +orden.t || Date.now(), cruce = Math.min(3, Math.max(0, +orden.cruce || 0));
+    const zoomEn = (ms) => s0 * Math.exp(r0 * (ms - t0) / 1000);
+    const tvEn = (ms) => Math.min(VIDEO.dur, tv0 + vel * (ms - t0) / 1000);
+    await new Promise((fin) => {
+      const paso = () => {
+        aspecto = app.graphicsDevice.width / Math.max(1, app.graphicsDevice.height);
+        const now = Date.now();
+        cam.setPosition(...enVideo(tvEn(now)).pos); cam.lookAt(...FOTO.mira);
+        cam.camera.fov = lente(fovFoto(aspecto), zoomEn(now));
+        if (now >= t0 + cruce * 1000) { app.off('update', paso); fin(); }
+      };
+      app.on('update', paso); paso();
+    });
+    // la bajada: de donde va el vídeo a la chica. Sale con la velocidad (y el zoom) que llevaba y se posa despacio detrás
+    // de ella, con el campo y la bruma de siempre (curvas de Hermite: sin saltos de posición ni de velocidad)
+    const ahora = Date.now(), tvH = tvEn(ahora), ev = enVideo(tvH);
+    const P0 = new Vec3(...ev.pos), V0 = new Vec3(...ev.vel).mulScalar(tvH < VIDEO.dur ? vel : 0);
+    const L0 = new Vec3(...FOTO.mira), L1 = F.clone().add(fwd.clone().mulScalar(20));
+    const zH = zoomEn(ahora), fov0 = lente(fovFoto(aspecto), zH);
+    const pend = (lente(fovFoto(aspecto), zH * Math.exp(r0 * 0.05)) - fov0) / 0.05; // (grados por segundo con que iba el zoom)
+    const dur = 4.2;
     let t = 0;
     await new Promise((fin) => {
       const paso = (dt) => {
         t += Math.min(dt, 0.05);
-        const x = Math.min(1, t / dur);
-        const v0 = 1.6; // (la velocidad de salida, en veces la media: viene volando)
-        const u = v0 * (x - 2 * x * x + x * x * x) + (3 * x * x - 2 * x * x * x);
-        poner(u, suave(Math.min(1, x * 1.15)));
+        const x = Math.min(1, t / dur), x2 = x * x, x3 = x2 * x;
+        const h00 = 2 * x3 - 3 * x2 + 1, h10 = x3 - 2 * x2 + x, h01 = -2 * x3 + 3 * x2;
+        cam.setPosition(h00 * P0.x + h10 * dur * V0.x + h01 * F.x, h00 * P0.y + h10 * dur * V0.y + h01 * F.y, h00 * P0.z + h10 * dur * V0.z + h01 * F.z);
+        const w = x * x * (3 - 2 * x);
+        cam.lookAt(new Vec3().lerp(L0, L1, w));
+        // el campo: el del vídeo (con su zoom, a la velocidad que llevaba) al del juego, sin saltos
+        cam.camera.fov = h00 * fov0 + h10 * pend * dur + h01 * fovJuego;
+        app.scene.fog.density = FOTO.bruma + (brumaJuego - FOTO.bruma) * w;
         if (x >= 1) { app.off('update', paso); fin(); }
       };
       app.on('update', paso);
     });
     // la cámara vuelve al controlador, en el mismo sitio (sin lo que se tocó mientras tanto)
+    cam.camera.fov = fovJuego; app.scene.fog.density = brumaJuego;
     for (const k of ['_desktopInput', '_mobileInput', '_gamepadInput']) try { tpc[k]?.read?.(); } catch (e) { /* ignore */ }
     tpc._camInitialized = false;
     tpc.enabled = true;
     document.documentElement.classList.add('aterrizado');
     decir('g388:aterriza');
-  }
+  })();
 }
