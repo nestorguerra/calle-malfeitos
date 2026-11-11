@@ -18,6 +18,7 @@ import { ThirdPersonController } from 'playcanvas/scripts/esm/third-person-contr
 import { archivosDe, estadoGuardado, leerArchivo, montarPersonaje } from './personaje.js';
 import { montarSonido } from './sonido.js';
 import { montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
+import { aparcar } from './aparcados.js';
 
 const q = new URLSearchParams(location.search);
 // (los errores, también en pantalla: en el enlace de claude.ai el juego va en un marco y su consola no se ve desde fuera)
@@ -77,6 +78,7 @@ const MODELOS = {
 // proyección exacta; la levanta tools/blender/guarena.sh en escenas/guarena. El cielo y los sonidos, los de siempre
 MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guarena.glb', colision: './escenas/guarena/guarena_colision.glb',
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
+  aparcados: './escenas/guarena/iglesia_coches.json', // (los coches aparcados en la plaza de la iglesia: src/aparcados.js)
   partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json' }; // (las cuestas de verdad, al dibujar: src/relieve.js)
@@ -854,6 +856,8 @@ function seguirSombra() {
 let sonido = null;
 if (escena.vida && q.get('vida') !== '0') {
   const vida = await (await fetch(escena.vida)).json();
+  // (los coches aparcados en la plaza de la iglesia, copias de los del pueblo: antes de montarCoches, que los cambia de cerca)
+  if (escena.aparcados && q.get('aparcados') !== '0') { try { aparcar({ app, vida, sitios: await (await fetch(escena.aparcados)).json() }); } catch (e) { console.warn('aparcados:', e); } }
   const materiales = [A.modelo, ...(escena.partes || []).map((_, i) => A['parte' + i])].filter(Boolean).flatMap((a) => a.resource.materials.map((m) => m.resource)).filter(Boolean);
   montarVida({ app, vida, materiales, q });
   if (escena.vecinos) montarVecinos({ app, vida, carpeta: escena.vecinos, glb, chica: ctrl, q }).then((v) => { if (window.foto) window.foto.vecinos = v; });
