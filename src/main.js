@@ -79,6 +79,7 @@ const MODELOS = {
 MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guarena.glb', colision: './escenas/guarena/guarena_colision.glb',
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
   aparcados: './escenas/guarena/iglesia_coches.json', // (los coches aparcados en la plaza de la iglesia: src/aparcados.js)
+  dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260 }, // (el interior de la iglesia, aparte: se carga al acercarse)
   partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json' }; // (las cuestas de verdad, al dibujar: src/relieve.js)
@@ -1064,6 +1065,54 @@ if (q.get('soltar') !== '0') {
     for (const ib of m.indexBuffer || []) if (ib?.storage) { liberado += ib.storage.byteLength; ib.storage = null; }
   }
   tiempos.liberado_mb = Math.round(liberado / 1048576);
+}
+// ---- el interior de la iglesia (docs/iglesia.md), en su .glb aparte: se carga al acercarse a menos de ?dentro= m (120) de
+// la iglesia y se suelta al irse a más de 260; con él siempre cargado, el móvil pasaba del tope de memoria al empezar, lejos
+// de allí. Sus mallas, como las demás (normales en 8 bits, sin copia en JavaScript), y su suciedad en el alfa de su luz
+// horneada (tools/blender/iglesia_suciedad.py). ?dentro=0 no lo carga
+if (escena.dentro && q.get('dentro') !== '0') {
+  const D = escena.dentro, radio = parseFloat(q.get('dentro') || D.radio), suelta = Math.max(D.suelta, radio + 60);
+  let ent = null, asset = null, cargando = false, n = 0;
+  const montar = () => {
+    if (!cargando || !asset) return; // (se alejó mientras bajaba)
+    asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = 8; });
+    // (las texturas que ya trae la iglesia de fuera —la sillería, su relieve, la madera de las puertas—, las mismas: el
+    // interior usa aquellas y suelta las suyas; si no, en el móvil pasaba del tope de memoria de JavaScript)
+    const lv = (x) => { const L = x?._levels?.[0]; return L instanceof Uint8Array ? L : null; };
+    const iguales = (a_, b_) => { const x = lv(a_), y = lv(b_); if (!x || !y || x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false; return true; };
+    const propias = new Set(asset.resource.textures.map((t) => t.resource).filter(Boolean)), cambio = new Map();
+    const otras = [...app.graphicsDevice.textures].filter((t) => !propias.has(t) && lv(t));
+    for (const t of propias) { const o = otras.find((u) => u.width === t.width && u.height === t.height && u.format === t.format && iguales(t, u)); if (o) cambio.set(t, o); }
+    asset.resource.materials.forEach(({ resource: mt }) => {
+      if (!mt) return;
+      for (const k of ['diffuseMap', 'normalMap', 'aoMap', 'emissiveMap', 'opacityMap', 'glossMap', 'metalnessMap']) if (mt[k] && cambio.has(mt[k])) mt[k] = cambio.get(mt[k]);
+      if (q.get('refraccion') !== '1' && mt.refraction > 0) mt.refraction = 0;
+      if (q.get('suciedad') !== '0' && mt.aoMap && /_iglesia_interior$/.test(mt.name)) { mt.diffuseDetailMap = mt.aoMap; mt.diffuseDetailMapUv = mt.aoMapUv; mt.diffuseDetailMapChannel = 'aaa'; mt.diffuseDetailMode = 'mul'; }
+      mt.update();
+    });
+    const mod = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true }), vistas = new Set();
+    for (const r of mod.findComponents('render')) for (const mi of r.meshInstances) {
+      if (sinSombra(mi.material?.name)) mi.castShadow = false;
+      if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
+      if (q.get('compactar') !== '0') compactar(mi.mesh);
+      if (q.get('soltar') !== '0') { if (mi.mesh.vertexBuffer?.storage) mi.mesh.vertexBuffer.storage = null; for (const ib of mi.mesh.indexBuffer || []) if (ib?.storage) ib.storage = null; }
+    }
+    for (const t of cambio.keys()) t.destroy();
+    raiz.addChild(mod); ent = mod; cargando = false;
+  };
+  app.on('update', () => {
+    if (n++ % 15) return;
+    const p = camara.getPosition(), d = Math.hypot(p.x - D.centro[0], p.z - D.centro[1]);
+    if (!ent && !cargando && d < radio) {
+      cargando = true; asset = new Asset('iglesia_dentro', 'container', { url: glb(D.glb) });
+      asset.once('load', montar); asset.once('error', (e) => { console.warn('el interior de la iglesia:', e); cargando = false; });
+      app.assets.add(asset); app.assets.load(asset);
+    } else if ((ent || cargando) && d > suelta) {
+      cargando = false; if (ent) { ent.destroy(); ent = null; }
+      if (asset) { app.assets.remove(asset); asset.unload(); asset = null; }
+    }
+    if (window.foto) window.foto.dentro = ent ? 'cargado' : cargando ? 'cargando' : 'no';
+  });
 }
 // ---- La escena por zonas (docs/zonas.md): las paredes y fachadas de cada celda de 200 m van en su .glb, sin imágenes; se
 // cargan las que quedan a menos de RADIO de la cámara (?radio=, 180 m en el móvil y 330 en el resto) y se sueltan las que
