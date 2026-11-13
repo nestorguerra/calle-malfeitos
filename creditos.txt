@@ -101,3 +101,10 @@ las monta `tools/sonidos.py` (cortadas, igualadas, en bucle y en AAC). De Freeso
   (`basisu`) se compila en local con `tools/basisu.sh` y comprime las texturas de los .glb (`tools/ktx2.py`); el
   transcodificador del navegador (`assets/wasm/basis/basis_transcoder.js` y `.wasm`) va con el juego, con su licencia
   en `assets/wasm/basis/LICENSE`.
+
+## El interior de los coches que se conducen
+
+Hecho aquí (`tools/blender/coche_conducir.py`, `tools/coche_texturas.py`): la geometría, las telas, los plásticos y las
+esferas de los relojes, sin fotos ni marcas. Los números y letras de los relojes y la radio, en Inter (de Rasmus
+Andersson, la que trae Blender; licencia SIL Open Font License 1.1, https://openfontlicense.org). La carrocería y las
+ruedas son las de los coches de Sketchfab de arriba.

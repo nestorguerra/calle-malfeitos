@@ -19,6 +19,7 @@ import { archivosDe, estadoGuardado, leerArchivo, montarPersonaje } from './pers
 import { montarSonido } from './sonido.js';
 import { montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar } from './aparcados.js';
+import { montarConducir, separarCajas } from './conducir.js';
 
 const q = new URLSearchParams(location.search);
 // (los errores, también en pantalla: en el enlace de claude.ai el juego va en un marco y su consola no se ve desde fuera)
@@ -413,15 +414,19 @@ if (planosFoto) {
   caja(P.izq - 0.25, P.alto_pared / 2, zc, 0.5, P.alto_pared, L); caja(P.der + 0.25, P.alto_pared / 2, zc, 0.5, P.alto_pared, L);
   caja((P.izq + P.der) / 2, P.alto_pared / 2, -P.fondo - 0.25, P.der - P.izq, P.alto_pared, 0.5); caja((P.izq + P.der) / 2, P.alto_pared / 2, 0.25, P.der - P.izq, P.alto_pared, 0.5);
 }
+// (las cajas de los coches aparcados salen de la malla y van cada una aparte, para poder subirse a uno y llevárselo:
+// src/conducir.js; ?conducir=0, como venían)
+const cajasCoches = [];
 for (const a of [A.colision, ...(modelo && escena.colisiones ? escena.colisiones.map((_, i) => A['colision' + i]) : [])]) {
   if (!a) continue;
   const col = a.resource.instantiateRenderEntity();
+  raiz.addChild(col);
   col.findComponents('render').forEach((render) => {
+    if (modelo && q.get('conducir') !== '0') { try { cajasCoches.push(...separarCajas(app, render)); } catch (e) { console.warn('cajas de los coches:', e); } }
     render.entity.addComponent('rigidbody', { type: 'static', friction: 0.5, restitution: 0 });
     render.entity.addComponent('collision', { type: 'mesh', renderAsset: render.asset });
     render.enabled = false;
   });
-  raiz.addChild(col);
 }
 // (lo que va pegado a la pared o al suelo no da sombra que se vea: los calcos de suciedad, manchas, grietas y
 // desconchones, el cristal y los cierres metidos en su hueco, las pinturas del suelo y los rótulos y placas de pared.
@@ -868,7 +873,12 @@ if (escena.vida && q.get('vida') !== '0') {
   const centro = await (await fetch(escena.vida.replace('vida.json', 'centro.json'))).json();
   montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q }).then((a) => { if (window.foto) window.foto.animales = a; });
   montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; });
-  montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q }).then((c) => { if (window.foto) window.foto.coches = c; });
+  montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q }).then((c) => {
+    if (window.foto) window.foto.coches = c;
+    // (subirse a un coche aparcado y conducirlo: src/conducir.js)
+    try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
+    catch (e) { console.warn('conducir:', e); }
+  });
 }
 
 // ---- Medida: los tiempos de cada fotograma, y una ruta andada sin teclado (para el Chrome sin ventana)
@@ -1097,14 +1107,18 @@ if (escena.dentro && q.get('dentro') !== '0') {
       if (sinSombra(mi.material?.name)) mi.castShadow = false;
       if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
       if (q.get('compactar') !== '0') compactar(mi.mesh);
-      if (q.get('soltar') !== '0') { if (mi.mesh.vertexBuffer?.storage) mi.mesh.vertexBuffer.storage = null; for (const ib of mi.mesh.indexBuffer || []) if (ib?.storage) ib.storage = null; }
+      // (sin la copia de JavaScript, pero con su tamaño: al soltar el interior, el motor lo lee al destruirlas, y con null
+      // daba un error; desde que se suelta al conducir, src/conducir.js, pasa a menudo)
+      if (q.get('soltar') !== '0') { const falsa = (x) => { if (x?.storage) x.storage = { byteLength: x.storage.byteLength }; }; falsa(mi.mesh.vertexBuffer); (mi.mesh.indexBuffer || []).forEach(falsa); }
     }
     for (const t of cambio.keys()) t.destroy();
     raiz.addChild(mod); ent = mod; cargando = false;
   };
   app.on('update', () => {
     if (n++ % 15) return;
-    const p = camara.getPosition(), d = Math.hypot(p.x - D.centro[0], p.z - D.centro[1]);
+    // (conduciendo, como si estuviera lejos: en coche no se entra en la iglesia, y su interior se suelta para dejar sitio
+    // en la memoria al coche: src/conducir.js)
+    const p = camara.getPosition(), d = window.foto?.conducir?.conduciendo?.() ? Infinity : Math.hypot(p.x - D.centro[0], p.z - D.centro[1]);
     if (!ent && !cargando && d < radio) {
       cargando = true; asset = new Asset('iglesia_dentro', 'container', { url: glb(D.glb) });
       asset.once('load', montar); asset.once('error', (e) => { console.warn('el interior de la iglesia:', e); cargando = false; });

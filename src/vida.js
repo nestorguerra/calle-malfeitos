@@ -446,6 +446,7 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q }) {
     const p = camara.getPosition();
     const orden = coches.map((k) => [k, k.lejos.getPosition().distance(p)]).sort((x, y) => x[1] - y[1]);
     orden.forEach(([k, d], i) => {
+      if (k.conducido) return; // (el que se está conduciendo: src/conducir.js)
       poner(k, d < dist && i < 4); if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope;
       if (k.solas) for (const s of k.solas) s.mi.visible = d < 40 && !(k.cerca?.enabled && !s.queda);
     });
