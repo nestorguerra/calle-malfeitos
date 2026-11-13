@@ -38,7 +38,7 @@ const q = new URLSearchParams(location.search);
 // (donde la dirección no puede llevar ?escena=, como el enlace de claude.ai, la página dice cuál cargar)
 if (!q.get('escena') && window.ESCENA_POR_DEFECTO) q.set('escena', window.ESCENA_POR_DEFECTO);
 const t0 = performance.now();
-const tiempos = (window.tiempos = {}); const marca = (k) => { tiempos[k] = Math.round(performance.now() - t0); }; // (las fases de la carga, en ms)
+const tiempos = (window.tiempos = { t0: Math.round(t0) }); const marca = (k) => { tiempos[k] = Math.round(performance.now() - t0); }; // (las fases de la carga, en ms desde t0, que va en el reloj de la página: tools/precarga.py)
 
 // ---- Las escenas de prueba (públicas; ninguna es Guareña todavía)
 const ESCENAS = {
@@ -1149,6 +1149,10 @@ if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
   const lejos = new Map();
   instancias.get(A['parte' + iZ('/lejos.glb')])?.findComponents('render').forEach((r) => lejos.set(r.entity.name, r));
   const radio = parseFloat(q.get('radio') || (movil ? '160' : '330')), suelta = radio + 80, todas = q.get('zonas') === '0';
+  // (al empezar, solo las zonas de alrededor de la salida: las de más allá se ven de lejos con lejos.glb y llegan luego, de
+  // una en una. Con todas las del radio había que bajar 60 MB de zonas antes del primer fotograma; con estas, unos 24.
+  // ?radio0= lo cambia; ?radio0=0, como antes)
+  const radio0 = parseFloat(q.get('radio0') ?? '100') || radio;
   const tope = parseFloat(q.get('caras') || (escena.caras ? escena.caras[movil ? 0 : 1] : 0)); // (caras de zona cargadas a la vez, como mucho: [móvil, ordenador])
   const estado = new Map(); // (clave → 'cargando' o {e, asset})
   const dist = (z, p) => { const [x0, z0, x1, z1] = z.caja; return Math.hypot(Math.max(0, x0 - p.x, p.x - x1), Math.max(0, z0 - p.z, p.z - z1)); };
@@ -1186,10 +1190,10 @@ if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
     try {
       // (hasta dónde se carga: el radio, o menos si las zonas de alrededor pesan más que el tope de caras de la escena.
       // En el centro del pueblo una zona pesa cinco veces lo que una de Malfeitos, y con el radio solo se iba la memoria)
-      let r = radio;
+      let r = inicial ? Math.min(radio, radio0) : radio;
       if (tope && !todas) {
         let suma = 0;
-        for (const z of Z.zonas.filter((z) => dist(z, p) < radio).sort((a, b) => dist(a, p) - dist(b, p))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z, p); break; } }
+        for (const z of Z.zonas.filter((z) => dist(z, p) < r).sort((a, b) => dist(a, p) - dist(b, p))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z, p); break; } }
       }
       if (!todas) for (const z of Z.zonas) if (dist(z, p) > (r < radio ? r + 30 : suelta)) soltarZona(z);
       const faltan = Z.zonas.filter((z) => !estado.has(z.clave) && (todas || dist(z, p) < r)).sort((a, b) => dist(a, p) - dist(b, p));
