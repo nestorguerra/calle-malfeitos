@@ -6,7 +6,7 @@
 // deja sonar antes); ?sonido=0 lo quita, ?volumen= lo cambia (de serie 0,4: bajo, a petición), la tecla M lo silencia.
 import { Vec3 } from 'playcanvas';
 
-export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, viento, q }) {
+export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, viento, q, despues }) {
   if (q.get('sonido') === '0') return null;
   const ctx = new AudioContext();
   const general = ctx.createGain(); general.gain.value = parseFloat(q.get('volumen') || '0.4');
@@ -17,6 +17,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
   const buf = {}, api = {};
   // (todos en un solo WAV, ambiente.wav, con su índice en ambiente.json: se descodifica una vez y cada sonido es un trozo)
   const paquete = (async () => {
+    await despues; // (cuando el juego ya está listo: son 7,5 MB que no hacen falta para el primer fotograma, src/main.js)
     const [ind, bin] = await Promise.all([fetch(carpeta + 'ambiente.json').then((r) => r.json()), fetch(carpeta + 'ambiente.wav').then((r) => r.arrayBuffer())]);
     return { ind: ind.paquete, todo: await ctx.decodeAudioData(bin) };
   })();

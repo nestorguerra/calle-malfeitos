@@ -111,10 +111,13 @@ if (q.get('foto388')) {
     try {
       const Z = await (await fetch(esc.zonas)).json();
       const [ix, iz] = esc.inicio, radio = parseFloat(q.get('radio') || (movil ? '160' : '330'));
+      // (al empezar, src/main.js solo carga las de menos de ?radio0= (100 m): aquí se bajaban todas las del radio, nueve
+      // en el ordenador y a la vez, y le quitaban red a las de la salida —cargar antes, 13-11-2026—)
+      const radio0 = parseFloat(q.get('radio0') ?? '100') || radio;
       const tope = parseFloat(q.get('caras') || esc.caras[movil ? 0 : 1]);
       const dist = (z) => { const [x0, z0, x1, z1] = z.caja; return Math.hypot(Math.max(0, x0 - ix, ix - x1), Math.max(0, z0 - iz, iz - z1)); };
-      let r = radio, suma = 0;
-      for (const z of Z.zonas.filter((z) => dist(z) < radio).sort((a, b) => dist(a) - dist(b))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z); break; } }
+      let r = Math.min(radio, radio0), suma = 0;
+      for (const z of Z.zonas.filter((z) => dist(z) < r).sort((a, b) => dist(a) - dist(b))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z); break; } }
       const base = esc.zonas.slice(0, esc.zonas.lastIndexOf('/') + 1);
       await Promise.all(Z.zonas.filter((z) => dist(z) < r).map(async (z) => {
         await window.precargando?.get(new URL(base + z.archivo, location.href).href); const resp = await fetch(base + z.archivo);

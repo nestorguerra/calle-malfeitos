@@ -46,9 +46,12 @@ export function precargar() {
       window.precargando.set(url, p); await p;
       if (x.c) criticosHechos++;
     };
-    // de cuatro en cuatro, en el orden de la lista (primero lo que hace falta para arrancar)
-    let i = 0;
-    await Promise.all(Array.from({ length: 4 }, async () => { while (i < lista.length) await bajar(lista[i++]); }));
+    // de cuatro en cuatro, en el orden de la lista: primero lo que hace falta para arrancar y, cuando eso ya está todo,
+    // lo demás (cargar antes, 13-11-2026: en cuanto se habían pedido los críticos se empezaba con lo demás, y las zonas
+    // de más allá, los coches de cerca y el sonido —46 MB— le quitaban red a las de la salida mientras el juego esperaba)
+    const tanda = async (xs) => { let i = 0; await Promise.all(Array.from({ length: 4 }, async () => { while (i < xs.length) await bajar(xs[i++]); })); };
+    await tanda(lista.filter((x) => x.c));
+    await tanda(lista.filter((x) => !x.c));
     avisar(true);
   })();
   decir('g388:hola', { v: 3, precarga: true });

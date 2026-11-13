@@ -18,7 +18,7 @@ import { ThirdPersonController } from 'playcanvas/scripts/esm/third-person-contr
 import { archivosDe, estadoGuardado, leerArchivo, montarPersonaje } from './personaje.js';
 import { montarSonido } from './sonido.js';
 import { montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
-import { aparcar } from './aparcados.js';
+import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
 
 const q = new URLSearchParams(location.search);
@@ -38,7 +38,10 @@ const q = new URLSearchParams(location.search);
 // (donde la dirección no puede llevar ?escena=, como el enlace de claude.ai, la página dice cuál cargar)
 if (!q.get('escena') && window.ESCENA_POR_DEFECTO) q.set('escena', window.ESCENA_POR_DEFECTO);
 const t0 = performance.now();
-const tiempos = (window.tiempos = { t0: Math.round(t0) }); const marca = (k) => { tiempos[k] = Math.round(performance.now() - t0); }; // (las fases de la carga, en ms desde t0, que va en el reloj de la página: tools/precarga.py)
+const tiempos = (window.tiempos = { t0: Math.round(t0) }); const marca = (k) => { tiempos[k] = Math.round(performance.now() - t0); if (k === 'listo') alListo(); }; // (las fases de la carga, en ms desde t0, que va en el reloj de la página: tools/precarga.py)
+// (cargar antes, 13-11-2026: lo que no hace falta para el primer fotograma —los coches de cerca, el coche que pasa y el
+// sonido— se pide cuando el juego ya está listo; antes se pedía a la vez que las zonas de la salida y les quitaba red)
+let alListo; const trasListo = new Promise((r) => { alListo = r; });
 
 // ---- Las escenas de prueba (públicas; ninguna es Guareña todavía)
 const ESCENAS = {
@@ -172,13 +175,20 @@ const enMemoria = (async () => {
   if (aviso) aviso.textContent = 'Preparando la calle…';
   return Object.fromEntries(grandes.map((u, i) => [u, blobs[i]]));
 })();
+// (vida.json, desde el principio: lo usan los coches del pueblo al montarse —su pintura y su matrícula— y la vida de la calle)
+const vidaJson = escena.vida ? fetch(escena.vida).then((r) => r.json()).catch(() => null) : null;
 
 // ---- Motor
 const conWasm = (glue, wasm) => ({ glueUrl: glue, wasmUrl: wasm }); // (el Draco de PlayCanvas solo va con WebAssembly)
 WasmModule.setConfig('Ammo', { ...conWasm('./assets/wasm/ammo/ammo.wasm.js', './assets/wasm/ammo/ammo.wasm.wasm'), fallbackUrl: './assets/wasm/ammo/ammo.js' });
-WasmModule.setConfig('DracoDecoderModule', { ...conWasm('./assets/wasm/draco/draco.wasm.js', './assets/wasm/draco/draco.wasm.wasm'), fallbackUrl: './assets/wasm/draco/draco.js' });
+// (el motor descomprime el Draco de las mallas y pasa las texturas KTX2 con un solo hilo si no se le dice otra cosa.
+// Probado el 13-11-2026 con ?hilos=: con cuatro, el pueblo está listo en 1,8 s en vez de 2,7 (con dos, 2,0), pero las
+// mallas de cada zona llegan de golpe y, al montar las de más allá ya jugando, salían dos fotogramas de 150 a 250 ms en
+// la mitad de las pruebas (con dos, en una de cada siete). Se queda en uno)
+const hilos = Math.max(1, Math.min(parseInt(q.get('hilos') || '1', 10) || 1, (navigator.hardwareConcurrency || 2) - 1));
+WasmModule.setConfig('DracoDecoderModule', { ...conWasm('./assets/wasm/draco/draco.wasm.js', './assets/wasm/draco/draco.wasm.wasm'), fallbackUrl: './assets/wasm/draco/draco.js', numWorkers: hilos });
 // (las texturas KTX2 de los .glb, tools/ktx2.py: el transcodificador de Basis Universal, Apache 2.0, en assets/wasm/basis)
-WasmModule.setConfig('BASIS', { glueUrl: './assets/wasm/basis/basis_transcoder.js', wasmUrl: './assets/wasm/basis/basis_transcoder.wasm' });
+WasmModule.setConfig('BASIS', { glueUrl: './assets/wasm/basis/basis_transcoder.js', wasmUrl: './assets/wasm/basis/basis_transcoder.wasm', numWorkers: hilos });
 WasmModule.setConfig('ZstdDecoderModule', { glueUrl: './assets/wasm/zstd/zstd.wasm.js', wasmUrl: './assets/wasm/zstd/zstd.wasm.wasm' }); // (para los .spz de Marble y Scaniverse)
 await Promise.all([
   new Promise((r) => WasmModule.getInstance('Ammo', () => r())),
@@ -468,6 +478,9 @@ if (A.modelo) {
     });
     if (!deMuestra) raiz.addChild(mod);
   });
+  // (los coches del pueblo comparten la malla de su modelo: a cada uno, su pintura y su matrícula; src/aparcados.js)
+  const vidaC = await vidaJson;
+  if (vidaC?.coches?.some((c) => c.color)) tiempos.coches_pintados = pintarCoches({ app, coches: vidaC.coches, materiales: A.modelo.resource.materials.map((m) => m.resource) });
   // las texturas, una sola vez para todos los .glb de la calle: cada .glb trae las suyas (los mismos nombres de imagen de
   // Blender) y, desde que las fachadas van partidas en oeste y este (los 15 MB por archivo del enlace), las de las
   // fachadas venían dos veces: el móvil pasaba de 250 MB de JavaScript. Cada material toma la primera igual y las
@@ -863,17 +876,17 @@ function seguirSombra() {
 // ---- La vida y el sonido de la calle (src/vida.js y src/sonido.js), con lo que dice vida.json; ?vida=0 los quita
 let sonido = null;
 if (escena.vida && q.get('vida') !== '0') {
-  const vida = await (await fetch(escena.vida)).json();
+  const vida = (await vidaJson) || await (await fetch(escena.vida)).json();
   // (los coches aparcados en la plaza de la iglesia, copias de los del pueblo: antes de montarCoches, que los cambia de cerca)
   if (escena.aparcados && q.get('aparcados') !== '0') { try { aparcar({ app, vida, sitios: await (await fetch(escena.aparcados)).json() }); } catch (e) { console.warn('aparcados:', e); } }
   const materiales = [A.modelo, ...(escena.partes || []).map((_, i) => A['parte' + i])].filter(Boolean).flatMap((a) => a.resource.materials.map((m) => m.resource)).filter(Boolean);
   montarVida({ app, vida, materiales, q });
   if (escena.vecinos) montarVecinos({ app, vida, carpeta: escena.vecinos, glb, chica: ctrl, q }).then((v) => { if (window.foto) window.foto.vecinos = v; });
-  if (escena.sonidos) sonido = montarSonido({ app, camara, ctrl, muneco, carpeta: escena.sonidos, vida, suelo: () => rayo.ultimaY, viento, q });
+  if (escena.sonidos) sonido = montarSonido({ app, camara, ctrl, muneco, carpeta: escena.sonidos, vida, suelo: () => rayo.ultimaY, viento, q, despues: trasListo });
   const centro = await (await fetch(escena.vida.replace('vida.json', 'centro.json'))).json();
-  montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q }).then((a) => { if (window.foto) window.foto.animales = a; });
+  trasListo.then(() => montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q })).then((a) => { if (window.foto) window.foto.animales = a; });
   montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; });
-  montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q }).then((c) => {
+  trasListo.then(() => montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q })).then((c) => {
     if (window.foto) window.foto.coches = c;
     // (subirse a un coche aparcado y conducirlo: src/conducir.js)
     try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
@@ -1148,6 +1161,9 @@ if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
   const porNombre = new Map(A['parte' + iZ('/materiales.glb')].resource.materials.map((m) => [m.resource?.name, m.resource]));
   const lejos = new Map();
   instancias.get(A['parte' + iZ('/lejos.glb')])?.findComponents('render').forEach((r) => lejos.set(r.entity.name, r));
+  // (las cajas de lejos, con los materiales de materiales.glb: lejos.glb ya no trae imágenes, eran las mismas; cargar
+  // antes, 13-11-2026. Con uno de antes, que no las tiene allí, se queda con las suyas)
+  for (const r of lejos.values()) for (const mi of r.meshInstances) { const m = porNombre.get(mi.material?.name); if (m) mi.material = m; }
   const radio = parseFloat(q.get('radio') || (movil ? '160' : '330')), suelta = radio + 80, todas = q.get('zonas') === '0';
   // (al empezar, solo las zonas de alrededor de la salida: las de más allá se ven de lejos con lejos.glb y llegan luego, de
   // una en una. Con todas las del radio había que bajar 60 MB de zonas antes del primer fotograma; con estas, unos 24.
