@@ -120,7 +120,7 @@ if (q.get('foto388')) {
       for (const z of Z.zonas.filter((z) => dist(z) < r).sort((a, b) => dist(a) - dist(b))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z); break; } }
       const base = esc.zonas.slice(0, esc.zonas.lastIndexOf('/') + 1);
       await Promise.all(Z.zonas.filter((z) => dist(z) < r).map(async (z) => {
-        await window.precargando?.get(new URL(base + z.archivo, location.href).href); const resp = await fetch(base + z.archivo);
+        await window.precargaLista; await window.precargando?.get(new URL(base + z.archivo, location.href).href); const resp = await fetch(base + z.archivo);
         zon.total += +resp.headers.get('content-length') || 0;
         const lector = resp.body.getReader();
         for (;;) { const { done, value } = await lector.read(); if (done) break; zon.hecho += value.length; }

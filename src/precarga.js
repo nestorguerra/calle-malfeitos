@@ -26,10 +26,18 @@ export function precargar() {
     if (e.source !== padre || !DE_FIAR.test(e.origin) || !e.data || e.data.type !== 'g388:juega') return;
     juega();
   });
+  let tengoLista;
+  window.precargaLista = new Promise((r) => { tengoLista = r; });
   (async () => {
     const escena = q.get('escena') || 'guarena';
     let lista = [];
-    try { lista = (await (await fetch(`./escenas/${escena}/precarga${movil ? '_movil' : ''}.json`)).json()).archivos || []; } catch (e) { decir('g388:precarga', { p: 1, error: true }); return; }
+    try { lista = (await (await fetch(`./escenas/${escena}/precarga${movil ? '_movil' : ''}.json`)).json()).archivos || []; } catch (e) { tengoLista(); decir('g388:precarga', { p: 1, error: true }); return; }
+    // (lo crítico, apuntado ya, aunque aún no se haya pedido: el juego espera a que llegue por aquí, en su orden, y lo
+    // va montando según llega. Si lo pidiera él, todo a la vez, acabaría todo junto al final y no habría nada que montar
+    // mientras tanto; montar mientras se baja, 14-11-2026)
+    const avisos = new Map();
+    for (const x of lista) if (x.c) { const url = new URL(x.u, location.href).href; window.precargando.set(url, new Promise((r) => avisos.set(url, r))); }
+    tengoLista();
     const total = lista.reduce((a, x) => a + (x.b || 0), 0) || 1, criticos = lista.filter((x) => x.c).length;
     let hecho = 0, criticosHechos = 0, ultimo = 0;
     const avisar = (fin) => { const now = performance.now(); if (!fin && now - ultimo < 400) return; ultimo = now; decir('g388:precarga', { p: fin ? 1 : Math.min(0.999, hecho / total), mb: Math.round(hecho / 1e5) / 10, total: Math.round(total / 1e5) / 10, critico: criticosHechos >= criticos }); };
@@ -43,7 +51,8 @@ export function precargar() {
           for (;;) { const { done, value } = await lector.read(); if (done) break; hecho += value.length; avisar(false); }
         } catch (e) { /* (la pedirá el juego) */ }
       })();
-      window.precargando.set(url, p); await p;
+      if (avisos.has(url)) p.then(avisos.get(url)); else window.precargando.set(url, p);
+      await p;
       if (x.c) criticosHechos++;
     };
     // de cuatro en cuatro, en el orden de la lista: primero lo que hace falta para arrancar y, cuando eso ya está todo,

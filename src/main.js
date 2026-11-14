@@ -3,7 +3,7 @@
 // Motor: PlayCanvas 2.23 (MIT), desde el CDN; nada de esto viene del juego de Guareña.
 import {
   ANIM_EQUAL_TO, ANIM_GREATER_THAN, ANIM_LESS_THAN, ANIM_LESS_THAN_EQUAL_TO, ANIM_PARAMETER_INTEGER, ANIM_PARAMETER_TRIGGER,
-  AnimClipHandler, AnimComponentSystem, AnimStateGraphHandler, AppBase, AppOptions, Asset, AssetListLoader,
+  AnimClipHandler, AnimComponentSystem, AnimStateGraphHandler, AppBase, AppOptions, Asset,
   CameraComponentSystem, CollisionComponentSystem, Color, ContainerHandler, Entity, FILLMODE_FILL_WINDOW,
   GSPLATDATA_COMPACT, GSplatComponentSystem, GSplatHandler, GamePads, Keyboard, LAYERID_SKYBOX, LightComponentSystem,
   ADDRESS_CLAMP_TO_EDGE, BLEND_NONE, BLEND_NORMAL, CULLFACE_BACK, CULLFACE_NONE, EnvLighting, FOG_EXP, MeshInstance, Mouse, Quat, RESOLUTION_AUTO, RenderComponentSystem, RigidBodyComponentSystem, SHADOW_PCF1_32F, SHADOW_PCF3_32F,
@@ -138,6 +138,7 @@ const grandes = [
   ...(escena.cielo ? [escena.cielo] : []),
   ...(escena.luzcielo ? [escena.luzcielo] : []),
 ];
+const bajados = {}; // (cada archivo grande → la promesa de su URL en memoria: se monta en cuanto llega, sin esperar a los demás)
 const enMemoria = (async () => {
   const total = {}, hecho = {}; let acabados = 0;
   const mb = (o) => Object.values(o).reduce((a, b) => a + b, 0) / 1e6;
@@ -151,7 +152,7 @@ const enMemoria = (async () => {
   // (en el enlace, los .glb grandes pueden ir en trozos de medio mega, <archivo>.p<k>.wasm, cuando la subida de archivos
   // grandes se corta: la página lleva cuántos en window.TROZOS y aquí se juntan; tools/despliegue/trocear.py)
   const leer = async (u, cuenta) => {
-    await window.precargando?.get(new URL(u, location.href).href); // (si la precarga de 388 Pueblos aún lo baja, se espera: src/precarga.js)
+    await window.precargaLista; await window.precargando?.get(new URL(u, location.href).href); // (si la precarga de 388 Pueblos aún lo baja, se espera: src/precarga.js)
     const r = await fetch(u);
     if (!r.ok || !r.body) throw new Error(`${u}: ${r.status}`);
     total[cuenta] = (total[cuenta] || 0) + (+r.headers.get('content-length') || 0); hecho[cuenta] = hecho[cuenta] || 0;
@@ -163,7 +164,7 @@ const enMemoria = (async () => {
     }
     return trozos;
   };
-  const blobs = await Promise.all(grandes.map(async (u) => {
+  for (const u of grandes) bajados[u] = (async () => {
     try {
       const base = u.replace(/\.wasm$/, ''), tr = window.TROZOS?.[base]; // ([cuántos, huella] o, en las primeras, cuántos)
       const [n, h] = Array.isArray(tr) ? tr : [tr, null];
@@ -171,7 +172,8 @@ const enMemoria = (async () => {
       acabados++; pintar();
       return URL.createObjectURL(new Blob(partes.flat()));
     } catch { return u; } // (si algo falla, que lo intente PlayCanvas por su cuenta)
-  }));
+  })();
+  const blobs = await Promise.all(grandes.map((u) => bajados[u]));
   if (aviso) aviso.textContent = 'Preparando la calle…';
   return Object.fromEntries(grandes.map((u, i) => [u, blobs[i]]));
 })();
@@ -240,40 +242,88 @@ if (foto) {
   escena.inicio = [(planosFoto.izq + planosFoto.der) / 2, 1.2, -(planosFoto.cerca + 2)];
   escena.sol = escena.sol || '55,-60';
 }
-const mem = await enMemoria, de = (u) => mem[u] || u;
-marca('bajado');
+enMemoria.then(() => marca('bajado'));
 if (window.esperaConstruir) await window.esperaConstruir; // (dentro de la web de 388 Pueblos, se construye cuando ella lo dice: src/desde388.js)
-const A = {
-  ...(escena.splat ? { splat: new Asset('splat', 'gsplat', { url: escena.splat }) } : {}),
-  ...(planosFoto ? Object.fromEntries(Object.entries(planosFoto.planos).map(([k, p]) => ['tex_' + k, new Asset('tex_' + k, 'texture', { url: foto.replace(/\/?$/, '/') + p.textura })])) : {}),
-  ...(chica ? {
-    // la chica del vídeo (tools/blender/personaje.py): MakeHuman con las animaciones del juego pasadas a su rig
-    ...(mio ? {} : { personaje: new Asset('personaje', 'container', { url: de(glb(chica + cuerpo + '.glb')) }) }),
-    quieto: new Asset('quieto', 'container', { url: glb(chica + (q.get('quieto') || 'quieto') + '.glb') }),
-    andar: new Asset('andar', 'container', { url: glb(chica + (q.get('andar') || 'andar') + '.glb') }),
-    correr: new Asset('correr', 'container', { url: de(glb(chica + 'correr.glb')) }),
-    saltar: new Asset('saltar', 'container', { url: de(glb(chica + 'saltar.glb')) }),
-  } : {
-    personaje: new Asset('personaje', 'container', { url: './assets/personaje/bitmoji.glb' }),
-    quieto: new Asset('quieto', 'container', { url: './assets/personaje/idle.glb' }),
-    andar: new Asset('andar', 'container', { url: './assets/personaje/walk.glb' }),
-    correr: new Asset('correr', 'container', { url: './assets/personaje/run.glb' }),
-    saltar: new Asset('saltar', 'container', { url: './assets/personaje/jump-flip.glb' }),
-  }),
-  cielo: new Asset('cielo', 'texture', { url: './assets/cielo/morning-env-atlas.png' }, { type: TEXTURETYPE_RGBP, mipmaps: false }),
-  // el acabado GTA como tabla de color (tools/lut_gta.py, de las 48 parejas de Malfeitos); ?lut=0 la quita
-  // (la tira es de 16³, 256 × 16, que es lo que el motor tiene fijo; y va en sRGB para que el muestreo la lleve a lineal)
-  lut: new Asset('lut', 'texture', { url: './assets/lut/' + (q.get('lut') || 'gta_malfeitos') + '.png' }, { mipmaps: false, srgb: true, minfilter: 'linear', magfilter: 'linear', addressu: 'clamp', addressv: 'clamp' }),
+// ---- Montar mientras se baja (14-11-2026): cada .glb grande se lee —su Draco, sus texturas— en cuanto llega, sin esperar
+// a los demás, y las zonas de la salida se piden y se leen ya, mientras llega lo demás (se montan en su sitio más abajo,
+// cuando están los materiales). Antes se esperaba a tenerlo todo bajado para empezar: de 3 a 12 s más. Con la precarga de
+// 388 Pueblos, lo crítico llega de uno en uno y en orden (src/precarga.js), así que hay algo que montar mientras tanto
+const bajarGlb = async (u) => { // (un .glb, entero o en trozos —window.TROZOS—, a una URL de memoria)
+  const base = u.replace(/\.wasm$/, ''), tr = window.TROZOS?.[base], [n, h] = Array.isArray(tr) ? tr : [tr, null];
+  const urls = n ? Array.from({ length: n }, (_, k) => `${base}${h ? '.' + h : ''}.p${k}.wasm`) : [u];
+  const partes = await Promise.all(urls.map(async (x) => { await window.precargaLista; await window.precargando?.get(new URL(x, location.href).href); const r = await fetch(x); if (!r.ok) throw new Error(`${x}: ${r.status}`); return r.arrayBuffer(); }));
+  return URL.createObjectURL(new Blob(partes));
 };
-if (escena.colision) A.colision = new Asset('colision', 'container', { url: escena.colision.startsWith('http') ? escena.colision : de(glb(escena.colision)) });
-if (modelo && escena.colisiones) escena.colisiones.forEach((p, i) => { A['colision' + i] = new Asset('colision' + i, 'container', { url: de(glb(p)) }); }); // (las colisiones de lo que va aparte)
-if (modelo) A.modelo = new Asset('modelo', 'container', { url: de(glb(escena.modelo)) });
-if (modelo && escena.partes) escena.partes.forEach((p, i) => { A['parte' + i] = new Asset('parte' + i, 'container', { url: de(glb(p)) }); });
-if (escena.objetos && q.get('objetos') !== '0') A.objetos = new Asset('objetos', 'container', { url: de(glb(escena.objetos)) }); // (?objetos=0: sin ellos)
-if (escena.cielo) A.hdr = new Asset('hdr', 'texture', { url: de(escena.cielo) }, { mipmaps: false, ...(escena.cielo.endsWith('.png') ? { type: TEXTURETYPE_RGBE } : {}) }); // (.png en RGBE o .hdr)
+const iZ = (fin) => (escena.partes || []).findIndex((p) => p.endsWith(fin));
+// (las zonas: cuáles, hasta dónde y cómo se traen —se bajan y se leen—; «La escena por zonas», más abajo, las monta)
+const ZC = modelo && escena.zonas && iZ('/materiales.glb') >= 0 ? (() => {
+  const radio = parseFloat(q.get('radio') || (movil ? '160' : '330')), suelta = radio + 80, todas = q.get('zonas') === '0';
+  // (al empezar, solo las zonas de alrededor de la salida: las de más allá se ven de lejos con lejos.glb y llegan luego, de
+  // una en una. Con todas las del radio había que bajar 60 MB de zonas antes del primer fotograma; con estas, unos 24.
+  // ?radio0= lo cambia; ?radio0=0, como antes)
+  const radio0 = parseFloat(q.get('radio0') ?? '100') || radio;
+  const tope = parseFloat(q.get('caras') || (escena.caras ? escena.caras[movil ? 0 : 1] : 0)); // (caras de zona cargadas a la vez, como mucho: [móvil, ordenador])
+  const dist = (z, p) => { const [x0, z0, x1, z1] = z.caja; return Math.hypot(Math.max(0, x0 - p.x, p.x - x1), Math.max(0, z0 - p.z, p.z - z1)); };
+  // (hasta dónde se carga: el radio, o menos si las zonas de alrededor pesan más que el tope de caras de la escena.
+  // En el centro del pueblo una zona pesa cinco veces lo que una de Malfeitos, y con el radio solo se iba la memoria)
+  const hasta = (Z, p, inicial) => {
+    let r = inicial ? Math.min(radio, radio0) : radio;
+    if (tope && !todas) {
+      let suma = 0;
+      for (const z of Z.zonas.filter((z) => dist(z, p) < r).sort((a, b) => dist(a, p) - dist(b, p))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z, p); break; } }
+    }
+    return r;
+  };
+  const traer = async (z) => {
+    const url = await bajarGlb(glb(escena.zonas.slice(0, escena.zonas.lastIndexOf('/') + 1) + z.archivo)); // (junto a su zonas.json: antes iba fija la carpeta de malfeitos_gris y el pueblo entero cargaba las casas de la otra escena)
+    const asset = new Asset('zona_' + z.clave, 'container', { url, filename: `zona_${z.clave}.glb` });
+    app.assets.add(asset);
+    await new Promise((ok, mal) => { asset.ready(ok); asset.once('error', mal); app.assets.load(asset); });
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    return asset;
+  };
+  const Zp = fetch(escena.zonas).then((r) => r.json()), ya = new Map(); // (ya: clave → la zona de la salida, ya pedida)
+  const [ix, , iz] = escena.inicio || [0, 0, 0];
+  Zp.then((Z) => { const p = { x: ix, z: iz }, r = hasta(Z, p, true); for (const z of Z.zonas) if (todas || dist(z, p) < r) { const t = traer(z); t.catch(() => {}); ya.set(z.clave, t); } }).catch(() => {});
+  return { radio, suelta, todas, dist, hasta, traer, Zp, ya, inicio: { x: ix, z: iz } };
+})() : null;
+// (y lo grande, cada uno en cuanto llega)
+const A = {}, cargas = [];
+const activo = (k, tipo, u, datos) => cargas.push((async () => {
+  const url = bajados[u] ? await bajados[u] : u;
+  const a = (A[k] = new Asset(k, tipo, { url }, datos));
+  await new Promise((ok) => { a.once('load', () => ok()); a.once('error', (e) => { console.warn(`${k}:`, e); ok(); }); app.assets.add(a); app.assets.load(a); });
+})());
+if (escena.splat) activo('splat', 'gsplat', escena.splat);
+if (planosFoto) for (const [k, p] of Object.entries(planosFoto.planos)) activo('tex_' + k, 'texture', foto.replace(/\/?$/, '/') + p.textura);
+if (chica) {
+  // la chica del vídeo (tools/blender/personaje.py): MakeHuman con las animaciones del juego pasadas a su rig
+  if (!mio) activo('personaje', 'container', glb(chica + cuerpo + '.glb'));
+  activo('quieto', 'container', glb(chica + (q.get('quieto') || 'quieto') + '.glb'));
+  activo('andar', 'container', glb(chica + (q.get('andar') || 'andar') + '.glb'));
+  activo('correr', 'container', glb(chica + 'correr.glb'));
+  activo('saltar', 'container', glb(chica + 'saltar.glb'));
+} else {
+  activo('personaje', 'container', './assets/personaje/bitmoji.glb');
+  activo('quieto', 'container', './assets/personaje/idle.glb');
+  activo('andar', 'container', './assets/personaje/walk.glb');
+  activo('correr', 'container', './assets/personaje/run.glb');
+  activo('saltar', 'container', './assets/personaje/jump-flip.glb');
+}
+activo('cielo', 'texture', './assets/cielo/morning-env-atlas.png', { type: TEXTURETYPE_RGBP, mipmaps: false });
+// el acabado GTA como tabla de color (tools/lut_gta.py, de las 48 parejas de Malfeitos); ?lut=0 la quita
+// (la tira es de 16³, 256 × 16, que es lo que el motor tiene fijo; y va en sRGB para que el muestreo la lleve a lineal)
+activo('lut', 'texture', './assets/lut/' + (q.get('lut') || 'gta_malfeitos') + '.png', { mipmaps: false, srgb: true, minfilter: 'linear', magfilter: 'linear', addressu: 'clamp', addressv: 'clamp' });
+if (escena.colision) activo('colision', 'container', escena.colision.startsWith('http') ? escena.colision : glb(escena.colision));
+if (modelo && escena.colisiones) escena.colisiones.forEach((p, i) => activo('colision' + i, 'container', glb(p))); // (las colisiones de lo que va aparte)
+if (modelo) activo('modelo', 'container', glb(escena.modelo));
+if (modelo && escena.partes) escena.partes.forEach((p, i) => activo('parte' + i, 'container', glb(p)));
+if (escena.objetos && q.get('objetos') !== '0') activo('objetos', 'container', glb(escena.objetos)); // (?objetos=0: sin ellos)
+if (escena.cielo) activo('hdr', 'texture', escena.cielo, { mipmaps: false, ...(escena.cielo.endsWith('.png') ? { type: TEXTURETYPE_RGBE } : {}) }); // (.png en RGBE o .hdr)
 // (y la luz de ambiente, de un cielo más templado: con el azul intenso del dibujado, las sombras salían azules)
-if (escena.luzcielo) A.hdrluz = new Asset('hdrluz', 'texture', { url: de(escena.luzcielo) }, { mipmaps: false, type: TEXTURETYPE_RGBE });
-await new Promise((r) => new AssetListLoader(Object.values(A), app.assets).load(r));
+if (escena.luzcielo) activo('hdrluz', 'texture', escena.luzcielo, { mipmaps: false, type: TEXTURETYPE_RGBE });
+await Promise.all(cargas);
+const mem = await enMemoria; // (las URL en memoria de lo bajado: el personaje del editor lee de aquí, y al final se sueltan)
 const tCarga = performance.now() - t0;
 marca('activos');
 app.start();
@@ -1148,39 +1198,22 @@ if (escena.dentro && q.get('dentro') !== '0') {
 // se alejan 80 m más; donde no hay zona cargada se ve la caja lisa de cada casa, con su color (lejos.glb). Las mallas de
 // cada zona toman el material del mismo nombre de materiales.glb (con la oclusión horneada y sus imágenes, una vez).
 // ?zonas=0 las carga todas
-const bajarGlb = async (u) => { // (un .glb, entero o en trozos —window.TROZOS—, a una URL de memoria)
-  const base = u.replace(/\.wasm$/, ''), tr = window.TROZOS?.[base], [n, h] = Array.isArray(tr) ? tr : [tr, null];
-  const urls = n ? Array.from({ length: n }, (_, k) => `${base}${h ? '.' + h : ''}.p${k}.wasm`) : [u];
-  const partes = await Promise.all(urls.map(async (x) => { await window.precargando?.get(new URL(x, location.href).href); const r = await fetch(x); if (!r.ok) throw new Error(`${x}: ${r.status}`); return r.arrayBuffer(); }));
-  return URL.createObjectURL(new Blob(partes));
-};
 let zonas = null;
-const iZ = (fin) => (escena.partes || []).findIndex((p) => p.endsWith(fin));
-if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
-  const Z = await (await fetch(escena.zonas)).json();
+if (ZC) {
+  const { radio, suelta, todas, dist, hasta, traer, ya } = ZC, Z = await ZC.Zp;
   const porNombre = new Map(A['parte' + iZ('/materiales.glb')].resource.materials.map((m) => [m.resource?.name, m.resource]));
   const lejos = new Map();
   instancias.get(A['parte' + iZ('/lejos.glb')])?.findComponents('render').forEach((r) => lejos.set(r.entity.name, r));
   // (las cajas de lejos, con los materiales de materiales.glb: lejos.glb ya no trae imágenes, eran las mismas; cargar
   // antes, 13-11-2026. Con uno de antes, que no las tiene allí, se queda con las suyas)
   for (const r of lejos.values()) for (const mi of r.meshInstances) { const m = porNombre.get(mi.material?.name); if (m) mi.material = m; }
-  const radio = parseFloat(q.get('radio') || (movil ? '160' : '330')), suelta = radio + 80, todas = q.get('zonas') === '0';
-  // (al empezar, solo las zonas de alrededor de la salida: las de más allá se ven de lejos con lejos.glb y llegan luego, de
-  // una en una. Con todas las del radio había que bajar 60 MB de zonas antes del primer fotograma; con estas, unos 24.
-  // ?radio0= lo cambia; ?radio0=0, como antes)
-  const radio0 = parseFloat(q.get('radio0') ?? '100') || radio;
-  const tope = parseFloat(q.get('caras') || (escena.caras ? escena.caras[movil ? 0 : 1] : 0)); // (caras de zona cargadas a la vez, como mucho: [móvil, ordenador])
   const estado = new Map(); // (clave → 'cargando' o {e, asset})
-  const dist = (z, p) => { const [x0, z0, x1, z1] = z.caja; return Math.hypot(Math.max(0, x0 - p.x, p.x - x1), Math.max(0, z0 - p.z, p.z - z1)); };
   const falsa = (b) => { if (b?.storage) b.storage = { byteLength: b.storage.byteLength }; }; // (sin la copia de JavaScript; destroy() aún mira su tamaño)
   const cargar = async (z) => {
     estado.set(z.clave, 'cargando');
     try {
-      const url = await bajarGlb(glb(escena.zonas.slice(0, escena.zonas.lastIndexOf('/') + 1) + z.archivo)); // (junto a su zonas.json: antes iba fija la carpeta de malfeitos_gris y el pueblo entero cargaba las casas de la otra escena)
-      const asset = new Asset('zona_' + z.clave, 'container', { url, filename: `zona_${z.clave}.glb` });
-      app.assets.add(asset);
-      await new Promise((ok, mal) => { asset.ready(ok); asset.once('error', mal); app.assets.load(asset); });
-      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      const pedida = ya.get(z.clave); ya.delete(z.clave); // (las de la salida, pedidas y leídas mientras llegaba lo demás)
+      const asset = await (pedida || traer(z));
       const e = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
       let sin = 0;
       for (const r of e.findComponents('render')) for (const mi of r.meshInstances) {
@@ -1204,20 +1237,15 @@ if (modelo && escena.zonas && iZ('/materiales.glb') >= 0) {
   const repasar = async (p, inicial) => {
     if (ocupado) return; ocupado = true;
     try {
-      // (hasta dónde se carga: el radio, o menos si las zonas de alrededor pesan más que el tope de caras de la escena.
-      // En el centro del pueblo una zona pesa cinco veces lo que una de Malfeitos, y con el radio solo se iba la memoria)
-      let r = inicial ? Math.min(radio, radio0) : radio;
-      if (tope && !todas) {
-        let suma = 0;
-        for (const z of Z.zonas.filter((z) => dist(z, p) < r).sort((a, b) => dist(a, p) - dist(b, p))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z, p); break; } }
-      }
+      const r = hasta(Z, p, inicial);
       if (!todas) for (const z of Z.zonas) if (dist(z, p) > (r < radio ? r + 30 : suelta)) soltarZona(z);
       const faltan = Z.zonas.filter((z) => !estado.has(z.clave) && (todas || dist(z, p) < r)).sort((a, b) => dist(a, p) - dist(b, p));
       if (inicial) await Promise.all(faltan.map(cargar)); else if (faltan.length) await cargar(faltan[0]); // (de una en una al andar: sin tirones)
     } finally { ocupado = false; }
   };
-  const [ix, , iz] = escena.inicio || [0, 0, 0];
-  await repasar({ x: ix, z: iz }, true);
+  await repasar(ZC.inicio, true);
+  for (const t of ya.values()) t.then((a) => { a.unload(); app.assets.remove(a); }).catch(() => {}); // (si sobrara alguna pedida, fuera)
+  ya.clear();
   app.on('update', () => { if ((cuenta++ & 31) === 0) repasar(camara.getPosition(), false); });
   zonas = { estado, Z, radio, cargadas: () => [...estado.keys()] };
   tiempos.zonas = estado.size;
