@@ -95,16 +95,21 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   // ---- los botones y los avisos (en el móvil, botones grandes a la derecha; en el ordenador, el aviso con su tecla)
   const css = document.createElement('style');
   css.textContent = `
-  .coche-boton { position: fixed; right: 14px; padding: 10px 16px; background: rgba(0,0,0,.6); color: #f2ece2; border: 1px solid rgba(255,255,255,.35);
-    border-radius: 10px; font: 600 15px -apple-system, system-ui, sans-serif; cursor: pointer; z-index: 5; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
-  .coche-boton:hover, .coche-boton:focus-visible { background: rgba(0,0,0,.8); border-color: #d9b27c; outline: none; }
+  .coche-boton { position: fixed; right: 14px; padding: 11px 18px; background: var(--velo, rgba(7, 10, 20, .62)); color: var(--cal, #eef0ec); border: 1px solid var(--linea, rgba(186, 198, 255, .16));
+    border-radius: 999px; font: 500 12px/1.2 var(--f-mono, ui-monospace, Menlo, monospace); letter-spacing: .09em; text-transform: uppercase; cursor: pointer; z-index: 5;
+    touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .coche-boton:hover, .coche-boton:focus-visible { background: rgba(7, 10, 20, .82); border-color: rgba(255, 255, 255, .4); outline: none; }
+  #coche-subir { background: var(--sodio, #ffa94d); border-color: var(--sodio, #ffa94d); color: var(--tinta, #0c1122); }
+  #coche-subir:hover, #coche-subir:focus-visible { background: var(--sodio-2, #ffcf91); border-color: var(--sodio-2, #ffcf91); }
   .coche-boton[hidden] { display: none; }
   #coche-subir { bottom: 30%; } #coche-bajar { bottom: 30%; } #coche-vista { bottom: calc(30% + 56px); }
-  #coche-velocidad { position: fixed; right: 16px; bottom: 14px; padding: 6px 12px; background: rgba(0,0,0,.5); border-radius: 8px; color: #f2ece2;
-    font: 600 22px ui-monospace, Menlo, monospace; pointer-events: none; z-index: 5; }
-  #coche-velocidad small { font-size: 12px; font-weight: 400; opacity: .8; margin-left: 4px; }
+  #coche-velocidad { position: fixed; right: calc(10px + env(safe-area-inset-right, 0px)); bottom: calc(52px + env(safe-area-inset-bottom, 0px)); padding: 7px 14px; background: var(--velo, rgba(7, 10, 20, .62)); border: 1px solid var(--linea, rgba(186, 198, 255, .16));
+    border-radius: 999px; color: var(--cal, #eef0ec); font: 500 22px/1.1 var(--f-mono, ui-monospace, Menlo, monospace); font-variant-numeric: tabular-nums; pointer-events: none; z-index: 5;
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  #coche-velocidad small { font-size: 11px; font-weight: 400; letter-spacing: .09em; text-transform: uppercase; color: var(--niebla, #9ba4c8); margin-left: 6px; }
   #coche-velocidad[hidden] { display: none; }
-  @media (pointer: coarse) { .coche-boton { padding: 14px 20px; font-size: 17px; } }`;
+  @media (pointer: coarse) { .coche-boton { padding: 15px 22px; font-size: 14px; } }
+  @media (max-width: 760px) { #coche-velocidad { bottom: calc(100px + env(safe-area-inset-bottom, 0px)); } }`;   /* (por encima de los créditos y de la ayuda) */   /* (los botones, como los de la web de 388 Pueblos: docs/estilo.md) */
   document.head.appendChild(css);
   const boton = (id, texto) => { const b = document.createElement('button'); b.id = id; b.type = 'button'; b.className = 'coche-boton'; b.textContent = texto; b.hidden = true; document.body.appendChild(b); return b; };
   const bSubir = boton('coche-subir', movil ? 'Subir al coche' : 'Subir al coche (E)');
@@ -112,7 +117,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   const bVista = boton('coche-vista', movil ? 'Vista' : 'Vista (C)');
   const velo = document.createElement('div'); velo.id = 'coche-velocidad'; velo.hidden = true; document.body.appendChild(velo);
   const ayuda = document.getElementById('ayuda'), ayudaPie = ayuda?.textContent;
-  const AYUDA_COCHE = movil ? 'Mando de la izquierda: arriba acelera, abajo frena, a los lados gira · a la derecha, mirar'
+  const AYUDA_COCHE = movil ? 'Izquierda: acelerar, frenar y girar · Derecha: mirar'
     : 'W/S acelerar y frenar · A/D girar · Espacio freno de mano · C vista de dentro · E bajar';
   // (los botones no dejan pasar el toque al lienzo: si no, el mando del móvil lo tomaba por el joystick)
   for (const b of [bSubir, bBajar, bVista]) for (const ev of ['pointerdown', 'pointerup', 'touchstart']) b.addEventListener(ev, (e) => e.stopPropagation());

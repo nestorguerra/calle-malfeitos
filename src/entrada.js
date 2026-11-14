@@ -29,6 +29,16 @@ if (EDITOR) {
   // (dentro de la web de 388 Pueblos, con ?desde=388: su entrada, antes de que arranque la calle; con ?foto388=, para
   // sacar sus fotos: src/desde388.js)
   const q388 = new URLSearchParams(location.search);
+  // (los rótulos de la carga y el título de la pestaña, según la escena: el pueblo entero o la calle; y la ayuda, la del
+  // dedo en el móvil —el mando de la izquierda anda, el de la derecha mira, dos toques saltan—. El aspecto y el tono, los
+  // de la web de 388 Pueblos: docs/estilo.md, 14-11-2026)
+  const SITIOS = { guarena: ['388 Pueblos · 001/388', 'Guareña', 'el pueblo entero', 'Guareña · 388 Pueblos'],
+    malfeitos_gris: ['388 Pueblos · Guareña', 'Calle Malfeitos', 'una calle de Guareña', 'Calle Malfeitos · Guareña · 388 Pueblos'] };
+  const sitio = SITIOS[q388.get('escena') || window.ESCENA_POR_DEFECTO];
+  if (sitio) { ['carga-sitio', 'carga-titulo', 'carga-sub'].forEach((id, i) => { const e = document.getElementById(id); if (e) e.textContent = sitio[i]; }); document.title = sitio[3]; }
+  const tactil = q388.get('movil') ? q388.get('movil') === '1' : (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900);
+  const ayuda = document.getElementById('ayuda');
+  if (tactil && ayuda) ayuda.textContent = 'Izquierda: andar (a fondo, correr) · Derecha: mirar · Dos toques: saltar';
   // (con ?precarga=1, la web de 388 Pueblos lo monta solo para bajar por detrás: no arranca hasta que dice g388:juega)
   if (window.parent !== window && q388.get('desde') === '388' && q388.get('precarga') === '1') await (await import('./precarga.js')).precargar();
   if ((window.parent !== window && q388.get('desde') === '388') || q388.get('foto388')) await import('./desde388.js');

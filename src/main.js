@@ -128,7 +128,8 @@ const glb = (u) => u + (window.SUFIJO_GLB || '');
 
 // ---- La descarga de lo grande (el modelo, su colisión, la chica, el cielo), con su progreso: la empieza el propio
 // juego antes de preparar el motor, enseña los megas que van y PlayCanvas lee luego cada archivo de memoria
-const aviso = document.getElementById('carga');
+const aviso = document.getElementById('carga-estado') || document.getElementById('carga'); // (la línea de estado bajo el título de la carga)
+const lugar = nombre === 'guarena' ? 'el pueblo' : 'la calle';
 const grandes = [
   ...(modelo ? [glb(escena.modelo)] : []),
   ...(modelo && escena.partes ? escena.partes.map(glb) : []),
@@ -149,7 +150,7 @@ const enMemoria = (async () => {
   const pintar = () => {
     if (!aviso) return;
     const sinTamano = grandes.some((u) => hecho[u] !== undefined && !total[u]);
-    aviso.textContent = `Cargando la calle: ${mb(hecho).toFixed(1).replace('.', ',')}${sinTamano ? '' : ` de ${Math.max(mb(total), mb(hecho)).toFixed(1).replace('.', ',')}`} MB · ${acabados} de ${grandes.length} archivos`;
+    aviso.textContent = `Cargando ${lugar} · ${mb(hecho).toFixed(1).replace('.', ',')}${sinTamano ? '' : ` de ${Math.max(mb(total), mb(hecho)).toFixed(1).replace('.', ',')}`} MB`; // (src/desde388.js lee estos megas)
   };
   // (en el enlace, los .glb grandes pueden ir en trozos de medio mega, <archivo>.p<k>.wasm, cuando la subida de archivos
   // grandes se corta: la página lleva cuántos en window.TROZOS y aquí se juntan; tools/despliegue/trocear.py)
@@ -176,7 +177,7 @@ const enMemoria = (async () => {
     } catch { return u; } // (si algo falla, que lo intente PlayCanvas por su cuenta)
   })();
   const blobs = await Promise.all(grandes.map((u) => bajados[u]));
-  if (aviso) aviso.textContent = 'Preparando la calle…';
+  if (aviso) aviso.textContent = `Preparando ${lugar}…`; // (y esta palabra, «Preparando»)
   return Object.fromEntries(grandes.map((u, i) => [u, blobs[i]]));
 })();
 // (vida.json, desde el principio: lo usan los coches del pueblo al montarse —su pintura y su matrícula— y la vida de la calle)
@@ -1021,7 +1022,8 @@ app.on('update', (dt) => {
   if (marco.ruta) andarRuta(dt);
   if ((marco.t.length & 15) === 0) {
     const bb = app.graphicsDevice.backBufferSize;
-    hud.textContent = `${fpsSuave.toFixed(0)} fps · ${app.graphicsDevice.deviceType} · ${bb.x}×${bb.y}${adaptar.nivel ? ' · calidad −' + adaptar.nivel : ''} · ${(app.stats.frame.gsplats || 0).toLocaleString('es')} splats · carga ${(tCarga / 1000).toFixed(1)} s`;
+    const gs = app.stats.frame.gsplats || 0; // (los splats, solo en las escenas que los tienen; la coma decimal, como en el resto)
+    hud.textContent = `${fpsSuave.toFixed(0)} fps · ${app.graphicsDevice.deviceType} · ${bb.x}×${bb.y}${adaptar.nivel ? ' · calidad −' + adaptar.nivel : ''}${gs ? ' · ' + gs.toLocaleString('es') + ' splats' : ''} · carga ${(tCarga / 1000).toFixed(1).replace('.', ',')} s`;
   }
 });
 
