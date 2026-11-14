@@ -39,6 +39,8 @@ if (EDITOR) {
   const tactil = q388.get('movil') ? q388.get('movil') === '1' : (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900);
   const ayuda = document.getElementById('ayuda');
   if (tactil && ayuda) ayuda.textContent = 'Izquierda: andar (a fondo, correr) · Derecha: mirar · Dos toques: saltar';
+  // (en el pueblo entero, también lo que se puede hacer con la gente y la hora: src/acciones.js y src/reloj.js; en el móvil, con sus botones)
+  if (!tactil && ayuda && (q388.get('escena') || window.ESCENA_POR_DEFECTO) === 'guarena') ayuda.textContent = 'WASD andar · Shift correr · Espacio saltar · E hablar o sentarse · Q saludar · B bailar · T la hora';
   // (con ?precarga=1, la web de 388 Pueblos lo monta solo para bajar por detrás: no arranca hasta que dice g388:juega)
   if (window.parent !== window && q388.get('desde') === '388' && q388.get('precarga') === '1') await (await import('./precarga.js')).precargar();
   if ((window.parent !== window && q388.get('desde') === '388') || q388.get('foto388')) await import('./desde388.js');

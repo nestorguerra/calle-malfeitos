@@ -1,0 +1,703 @@
+// La gente de Guareña (docs/pueblo_vivo.md, tareas 9 a 11; las cuentas, en docs/gente.md). El usuario, el 14-11-2026:
+// «un volumen de personas proporcional a los habitantes […] en función de la hora del día […] como si fuera un GTA, pero
+// que la gente se mueva en la proporción normal que suele ocurrir en Guareña […] con un sentido lógico y una coherencia
+// humana».
+// - Cuántos: Guareña tiene 6.665 vecinos; la parte que está en la calle sale de la hora (CURVA), del día de la semana y
+//   de la estación. Se reparten por las calles según lo cerca que están del centro, más en las plazas y junto a las
+//   tiendas; los que tocan a la chica son los de las calles de su alrededor (RADIO), con un tope para el aparato.
+// - Quién: los mayores salen por la mañana y a la caída de la tarde, los niños a la salida del colegio y por la tarde a
+//   jugar, los adultos a sus recados y al paseo, los jóvenes por la tarde y la noche (MEZCLA).
+// - Qué hace cada uno: andar por la acera de un sitio a otro (de un portal a una tienda, a la plaza, a otro portal, a la
+//   iglesia), pasear, pararse a charlar en corro, sentarse en los bancos, los niños jugar a correr en las plazas por la
+//   tarde, ir a misa a su hora (y, durante la misa, la iglesia con gente en los bancos).
+// - Como en los juegos de mundo abierto, solo existen los de alrededor: aparecen donde la chica no mira (detrás de ella,
+//   tras una esquina o lejos) y se van cuando quedan lejos o entran en un portal, una tienda o la iglesia sin que se vea.
+// - Andan con su paso medido (sin patinar: andar 1,33 m/s, pasear 1,07, los niños corriendo 2,16), se apartan de la chica
+//   y del coche, y los más cercanos llevan una cápsula para que la chica no los atraviese.
+// Para las pruebas y para hablar con ellos (src/acciones.js): window.foto.gente. ?gente=0, sin gente; ?gente=2, el doble;
+// ?gentetope=, ?genteradio=.
+import { Asset, BLEND_NONE, Entity, Quat, Vec3 } from 'playcanvas';
+import { brazoSaludo } from './gestos.js';
+
+export const VECINOS = 6665; // (INE, padrón de 2024)
+// la parte de los vecinos que está en la calle a cada hora de un día de diario (hora, fracción): casi nadie de
+// madrugada; la mañana de recados, con el pico al mediodía (la salida del colegio a las dos); la siesta, vacía; la tarde
+// de los niños en las plazas y el paseo al caer la tarde; la cena, en casa (docs/gente.md)
+const CURVA = [[0, 0.004], [2, 0.0015], [5, 0.001], [6.5, 0.004], [7.5, 0.014], [8.5, 0.024], [9.5, 0.026], [10.5, 0.034], [11.5, 0.042], [12.5, 0.046],
+  [13.5, 0.048], [14.5, 0.026], [15.5, 0.012], [16.5, 0.018], [17.5, 0.034], [18.5, 0.046], [19.5, 0.052], [20.5, 0.044], [21.5, 0.026], [22.5, 0.014], [23.5, 0.007], [24, 0.004]];
+// quién está en la calle a cada hora (mayores, adultos, jóvenes, niños), por tramos
+const MEZCLA = [[0, [0.05, 0.45, 0.5, 0]], [7, [0.12, 0.6, 0.12, 0.16]], [9.5, [0.45, 0.43, 0.06, 0.06]], [13.5, [0.24, 0.4, 0.1, 0.26]], [15, [0.2, 0.5, 0.2, 0.1]],
+  [17, [0.3, 0.25, 0.15, 0.3]], [20.5, [0.25, 0.42, 0.28, 0.05]], [22.5, [0.04, 0.46, 0.5, 0]]];
+const TIPOS = ['mayor', 'adulto', 'joven', 'nino'];
+const PASO = { andar: 1.33, pasear: 1.07, correr: 2.16 }; // (m/s a los que pisan sus clips sin patinar: medido con el pie que apoya)
+// la misa (Santa María): de diario a las siete de la tarde (en verano, a las ocho) y el domingo a las doce
+const misaHora = (dia, mes) => (dia === 0 ? 12 : (mes >= 6 && mes <= 9) ? 20 : 19);
+
+function interpolar(tabla, h) {
+  for (let i = 0; i + 1 < tabla.length; i++) {
+    const [h0, v0] = tabla[i], [h1, v1] = tabla[i + 1];
+    if (h >= h0 && h <= h1) return v0 + (v1 - v0) * (h - h0) / (h1 - h0);
+  }
+  return tabla[tabla.length - 1][1];
+}
+// la fracción de los vecinos en la calle: la de la hora, con el día de la semana y la estación
+export function enLaCalle(h, dia, mes) {
+  let f = interpolar(CURVA, h);
+  if (dia === 0) f *= h < 10 ? 0.45 : h < 14.5 ? 1.25 : h > 17 && h < 21.5 ? 1.1 : 1; // (el domingo: mañana tarde, misa y aperitivo, paseo)
+  if (dia === 6) f *= h < 9 ? 0.6 : h > 21 ? 1.6 : 1.05; // (el sábado: sin madrugar, y la noche de los jóvenes)
+  if (mes === 11 || mes === 12 || mes <= 2) f *= h > 18.5 ? 0.72 : h > 12 && h < 16 ? 1.1 : 1; // (en invierno: al sol del mediodía sí, de noche con frío no)
+  if (mes >= 6 && mes <= 8) f *= h > 14 && h < 18.5 ? 0.35 : h > 21 || h < 1 ? 2 : 1; // (en verano: la siesta con el calor, nadie; de noche, al fresco)
+  return f;
+}
+const mezclaDe = (h, dia, oscuro = false) => {
+  let m = MEZCLA[0][1];
+  for (const [h0, v] of MEZCLA) if (h >= h0) m = v;
+  m = m.slice();
+  if (dia === 0 || dia === 6) { if (h > 10 && h < 14) m[3] += 0.12; } // (el fin de semana, los niños también por la mañana)
+  if (oscuro && h > 12) m[3] *= 0.4; // (de noche, los niños a casa: en invierno anochece a las seis y media)
+  return m;
+};
+
+const azar = (a, b) => a + Math.random() * (b - a);
+const elegir = (l) => l[Math.floor(Math.random() * l.length)];
+const pesar = (pesos) => { let s = 0; for (const p of pesos) s += p; let r = Math.random() * s; for (let i = 0; i < pesos.length; i++) { r -= pesos[i]; if (r <= 0) return i; } return pesos.length - 1; };
+const angulo = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+
+export async function montarGente({ app, vida, carpeta, glb, camara, chica, reloj, q, movil, iglesia, conducir }) {
+  const fq = q.get('gente');
+  if (fq === '0' || !vida?.calles?.length) return null;
+  const FACTOR = fq && !isNaN(parseFloat(fq)) ? parseFloat(fq) : 1;
+  const TOPE = parseInt(q.get('gentetope') || (movil ? '16' : '40'), 10);
+  const RADIO = parseFloat(q.get('genteradio') || (movil ? '60' : '80'));
+  const info = await (await fetch(carpeta + 'gente.json')).json();
+  const sitiosIglesia = iglesia ? await fetch(iglesia).then((r) => r.json()).catch(() => null) : null;
+  // (en el móvil, seis de los doce: uno y una de cada edad, menos de los jóvenes y los niños, que salen menos; cada cuerpo
+  // son unos 2 MB de gráfica y otros tantos de JavaScript. ?gentecuerpos= cuántos)
+  let personas = Object.keys(info).map(Number).sort((a, b) => a - b);
+  const nCuerpos = parseInt(q.get('gentecuerpos') || (movil ? '6' : '12'), 10);
+  if (nCuerpos < personas.length) {
+    const orden = []; const por = (t, sx) => personas.filter((i) => info[i].tipo === t && (sx == null || info[i].sexo === sx));
+    for (const [t, sx] of [['mayor', 1], ['mayor', 0], ['adulto', 1], ['adulto', 0], ['joven', null], ['nino', null], ['adulto', 1], ['adulto', 0], ['mayor', 1], ['mayor', 0], ['joven', null], ['nino', null]]) {
+      const c = por(t, sx).find((i) => !orden.includes(i)); if (c != null) orden.push(c);
+    }
+    personas = orden.slice(0, nCuerpos).sort((a, b) => a - b);
+  }
+  const deTipo = Object.fromEntries(TIPOS.map((t) => [t, personas.filter((i) => info[i].tipo === t)]));
+
+  // ---- las aceras: cada calle, un punto cada 4 m con la distancia del eje al bordillo y a la pared a cada lado
+  // (vida.calles: [x, z, bordillo izq., bordillo der., pared izq., pared der.]); por dónde se anda: por el medio de la
+  // acera; si no hay acera, por el borde de la calzada junto a la pared, como en las calles estrechas de verdad
+  const C = vida.calles; let n = 0; for (const c of C) n += c.p.length;
+  const X = new Float32Array(n), Z = new Float32Array(n), NX = new Float32Array(n), NZ = new Float32Array(n), OF = [new Float32Array(n), new Float32Array(n)];
+  const BORDE = [new Float32Array(n), new Float32Array(n)]; // (la distancia del eje al bordillo a cada lado: en una plaza, lo que hay de explanada)
+  const PARED = [new Float32Array(n), new Float32Array(n)], W = new Float32Array(n), CALLE = new Int32Array(n), PLAZA = new Uint8Array(n), VEC = Array.from({ length: n }, () => []);
+  const acera = (c, w) => {
+    if (c != null && w != null && w > c + 0.4) return c + Math.max(0.3, Math.min(1.6, (w - c) / 2));
+    if (c != null && w == null) return c + 0.8;
+    if (w != null) return Math.max(w * 0.5, w - 0.8);
+    return 2.5;
+  };
+  let id = 0; const tramos = [];
+  for (let ci = 0; ci < C.length; ci++) {
+    const p = C[ci].p, b = id, esPlaza = /^Plaza/.test(C[ci].nombre);
+    tramos.push([b, b + p.length]);
+    for (let k = 0; k < p.length; k++, id++) {
+      X[id] = p[k][0]; Z[id] = p[k][1]; CALLE[id] = ci; PLAZA[id] = esPlaza ? 1 : 0;
+      const a = p[Math.max(0, k - 1)], c = p[Math.min(p.length - 1, k + 1)]; let dx = c[0] - a[0], dz = c[1] - a[1]; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      NX[id] = dz; NZ[id] = -dx; // (la normal del lado «izquierdo» de vida.calles; el otro lado, la contraria)
+      OF[0][id] = acera(p[k][2], p[k][4]); OF[1][id] = acera(p[k][3], p[k][5]);
+      PARED[0][id] = p[k][4] ?? 30; PARED[1][id] = p[k][5] ?? 30;
+      BORDE[0][id] = p[k][2] ?? 2.5; BORDE[1][id] = p[k][3] ?? 2.5;
+      if (k > 0) { VEC[id].push(id - 1); VEC[id - 1].push(id); }
+    }
+    // (sin saltos: la mediana de tres, que en los cruces la pared desaparece y vuelve)
+    for (const o of OF) { const v = Array.from(o.subarray(b, id)); for (let k = 1; k + 1 < v.length; k++) o[b + k] = [v[k - 1], v[k], v[k + 1]].sort((x, y) => x - y)[1]; }
+  }
+  // la rejilla, para buscar cerca
+  const CEL = 8, rej = new Map(), clave = (a, b) => (a + 2000) * 5000 + b + 2000;
+  for (let i = 0; i < n; i++) { const k = clave(Math.floor(X[i] / CEL), Math.floor(Z[i] / CEL)); let l = rej.get(k); if (!l) rej.set(k, (l = [])); l.push(i); }
+  const cerca = (x, z, r, f) => {
+    for (let a = Math.floor((x - r) / CEL); a <= Math.floor((x + r) / CEL); a++) for (let b = Math.floor((z - r) / CEL); b <= Math.floor((z + r) / CEL); b++) {
+      const l = rej.get(clave(a, b)); if (l) for (const j of l) f(j);
+    }
+  };
+  const nodoCerca = (x, z, r = 30, f = null) => { let m = -1, dm = r; cerca(x, z, r, (j) => { const d = Math.hypot(X[j] - x, Z[j] - z); if (d < dm && (!f || f(j))) { dm = d; m = j; } }); return m; };
+  // los cruces: cada punto, con el más cercano de cada otra calle a menos de 6 m
+  for (let i = 0; i < n; i++) {
+    const mejor = new Map();
+    cerca(X[i], Z[i], 6, (j) => { if (CALLE[j] === CALLE[i]) return; const d = Math.hypot(X[j] - X[i], Z[j] - Z[i]); if (d < 6 && (!mejor.has(CALLE[j]) || mejor.get(CALLE[j])[1] > d)) mejor.set(CALLE[j], [j, d]); });
+    for (const [, [j]] of mejor) if (!VEC[i].includes(j)) { VEC[i].push(j); VEC[j].push(i); }
+  }
+  // el peso de cada punto: más cerca del centro (la plaza de España), en las plazas y junto a las tiendas
+  const pEsp = vida.plazas?.find((p) => /España/.test(p.nombre))?.p, centro = pEsp ? pEsp[Math.floor(pEsp.length / 2)] : [0, 0];
+  const tiendasCerca = new Uint8Array(n);
+  for (const t of vida.tiendas || []) cerca(t.p[0], t.p[2], 15, (j) => { if (Math.hypot(X[j] - t.p[0], Z[j] - t.p[2]) < 15) tiendasCerca[j] = 1; });
+  let WT = 0;
+  for (let i = 0; i < n; i++) { W[i] = 4 * (1 + 5 * Math.exp(-Math.hypot(X[i] - centro[0], Z[i] - centro[1]) / 220)) * (PLAZA[i] ? 3 : 1) * (tiendasCerca[i] ? 1.4 : 1); WT += W[i]; }
+
+  // el camino de un punto a otro por las calles (A*, con un tope)
+  function caminoEntre(a, b, tope = 6000) {
+    if (a < 0 || b < 0) return null; if (a === b) return [a];
+    const dist = new Map([[a, 0]]), de = new Map(), heap = [[Math.hypot(X[a] - X[b], Z[a] - Z[b]), a]];
+    const sube = (i) => { while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const baja = (i) => { for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } };
+    let vistos = 0;
+    while (heap.length && vistos++ < tope) {
+      const [, u] = heap[0]; const ult = heap.pop(); if (heap.length) { heap[0] = ult; baja(0); }
+      if (u === b) { const r = [b]; let k = b; while (de.has(k)) { k = de.get(k); r.push(k); } return r.reverse(); }
+      const du = dist.get(u);
+      for (const v of VEC[u]) {
+        const nd = du + Math.hypot(X[v] - X[u], Z[v] - Z[u]) + (CALLE[v] !== CALLE[u] ? 3 : 0); // (cambiar de calle cuesta algo: no se zigzaguea)
+        if (nd < (dist.get(v) ?? Infinity)) { dist.set(v, nd); de.set(v, u); heap.push([nd + Math.hypot(X[v] - X[b], Z[v] - Z[b]), v]); sube(heap.length - 1); }
+      }
+    }
+    return null;
+  }
+  const carril = (i, lado, o = [0, 0]) => { const d = lado ? -OF[1][i] : OF[0][i]; o[0] = X[i] + NX[i] * d; o[1] = Z[i] + NZ[i] * d; return o; };
+  const ladoDe = (i, x, z) => ((x - X[i]) * NX[i] + (z - Z[i]) * NZ[i] >= 0 ? 0 : 1);
+  // un punto al azar en la explanada de una plaza, a la altura del punto i (de bordillo a bordillo, con un metro de margen)
+  // ---- si se puede ir en línea recta de un punto a otro, a la altura de la cintura: sin una pared ni un coche en medio
+  const va2 = new Vec3(), vb2 = new Vec3();
+  // (solo las paredes: los coches aparcados se esquivan aparte, y rodear por el centro de la calle a un coche que está
+  // entre la acera y el centro era atravesarlo; tools/prueba_gente.py)
+  const soloParedes = { filterCallback: (e) => e.name !== 'caja_coche' && e.name !== 'coche_que_pasa' && e.name !== 'controlador' && !e.tags?.has('gente') };
+  const hayPaso = (x0, z0, x1, z1, y) => !app.systems.rigidbody.raycastFirst(va2.set(x0, y + 0.9, z0), vb2.set(x1, y + 0.9, z1), soloParedes);
+  // (sin caer encima de un coche aparcado: la caja de cada uno, de src/conducir.js, con 0,7 m de margen)
+  const libreDeCoches = (x, z, margen = 0.7) => {
+    for (const k of window.foto?.coches?.coches || []) {
+      const c = k.caja; if (!c || Math.abs(c.x - x) > 4 || Math.abs(c.z - z) > 4) continue;
+      const rx = x - c.x, rz = z - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx;
+      if (Math.abs(lx) < c.L / 2 + margen && Math.abs(lz) < c.W / 2 + margen) return false;
+    }
+    return true;
+  };
+  // las plazas cuyo eje es un anillo cerrado (la de España): su interior es la explanada; se busca dentro, a más de 2 m del borde
+  const anillos = new Map();
+  for (const pl of vida.plazas || []) { const q_ = pl.p; if (q_.length > 3 && Math.hypot(q_[0][0] - q_[q_.length - 1][0], q_[0][1] - q_[q_.length - 1][1]) < 6) anillos.set(pl.nombre, q_); }
+  const dentroAnillo = (an, x, z) => { let d = false; for (let a = 0, b = an.length - 1; a < an.length; b = a++) { const [xa, za] = an[a], [xb, zb] = an[b]; if ((za > z) !== (zb > z) && x < xa + (z - za) * (xb - xa) / (zb - za)) d = !d; } return d; };
+  const lejosDelBorde = (an, x, z, m) => { for (let a = 0, b = an.length - 1; a < an.length; b = a++) { const [xa, za] = an[a], [xb, zb] = an[b], dx = xb - xa, dz = zb - za, l2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((x - xa) * dx + (z - za) * dz) / l2)); if (Math.hypot(x - xa - dx * t, z - za - dz * t) < m) return false; } return true; };
+  const enExplanada = (i) => {
+    const an = anillos.get(C[CALLE[i]].nombre);
+    if (an) {
+      let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of an) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+      for (let t = 0; t < 20; t++) { const x = azar(x0, x1), z = azar(z0, z1); if (dentroAnillo(an, x, z) && lejosDelBorde(an, x, z, 2) && libreDeCoches(x, z)) return [x, z]; }
+    }
+    // (de bordillo a bordillo, pero nunca más allá de la pared, y sin una pared entre el eje y el punto)
+    const a = Math.max(0, Math.min(BORDE[0][i], PARED[0][i]) - 1), b = Math.max(0, Math.min(BORDE[1][i], PARED[1][i]) - 1);
+    for (let t = 0; t < 8; t++) { const u = azar(-b, a), q_ = [X[i] + NX[i] * u, Z[i] + NZ[i] * u]; if (libreDeCoches(q_[0], q_[1]) && hayPaso(X[i], Z[i], q_[0], q_[1], 0)) return q_; }
+    return [X[i], Z[i]];
+  };
+
+  // ---- la altura del suelo (la física es plana; el relieve se pone al dibujar): un rayo, sin la gente ni los techos de los coches
+  const va = new Vec3(), vb = new Vec3();
+  const suelo = (x, z, ref = 0) => {
+    const hits = app.systems.rigidbody.raycastAll(va.set(x, ref + 1.6, z), vb.set(x, ref - 3, z));
+    let y = ref, hay = false;
+    for (const h of hits) { if (h.entity?.tags?.has('gente') || h.entity?.name === 'controlador') continue; if (h.point.y < ref + 0.95 && (!hay || h.point.y > y)) { y = h.point.y; hay = true; } }
+    return hay ? y : ref;
+  };
+
+  // ---- los cuerpos: se cargan los doce, y cada uno se copia las veces que haga falta (y se guarda al irse, para no rehacerlo)
+  const ASSETS = {}, POOL = Object.fromEntries(personas.map((i) => [i, []]));
+  await Promise.all(personas.map((i) => new Promise((ok) => {
+    const asset = new Asset('persona' + i, 'container', { url: glb(carpeta + 'persona' + i + (movil ? '_movil' : '') + '.glb') }); // (en el móvil, con la textura a 512: tools/gente_movil.py)
+    asset.once('load', () => { ASSETS[i] = asset; ok(); }); asset.once('error', (e) => { console.warn('gente:', e); ok(); });
+    app.assets.add(asset); app.assets.load(asset);
+  })));
+  const listos = personas.filter((i) => ASSETS[i]);
+  if (!listos.length) return null;
+  const arreglados = new Set();
+  function crear(pi) {
+    const pool = POOL[pi];
+    if (pool.length) { const v = pool.pop(); v.raiz.enabled = true; return v; }
+    const a = ASSETS[pi]; const e = a.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
+    const raiz = new Entity('vecino_' + info[pi].nombre); raiz.addChild(e); app.root.addChild(raiz);
+    e.addComponent('anim', { activate: true });
+    for (const an of a.resource.animations) e.anim.assignAnimation(an.resource.name, an.resource, undefined, 1, !/sentarse|levantarse/.test(an.resource.name)); // (en el componente, el tercero es la capa)
+    for (const r of e.findComponents('render')) for (const mi of r.meshInstances) {
+      const m = mi.material; if (arreglados.has(m)) continue; arreglados.add(m);
+      m.blendType = BLEND_NONE; m.depthWrite = true; if (!m.alphaTest) m.alphaTest = 0.5; m.update();
+    }
+    return { raiz, e, pi, info: info[pi], cabeza: e.findByName('mixamorig:Head'), cuello: e.findByName('mixamorig:Neck'), saludo: brazoSaludo(e) };
+  }
+  const poner = (v, clip, mezcla = 0.3) => {
+    if (v.clip === clip) return; v.clip = clip;
+    const capa = v.e.anim.baseLayer; if (!capa) return;
+    if (!v.clipYa) { capa.transition(clip, 0); capa.activeStateCurrentTime = Math.random() * 2; v.clipYa = true; } else capa.transition(clip, mezcla);
+  };
+
+  // ---- quién hay
+  const gente = []; // (los vecinos que existen ahora)
+  const bancosLibres = (vida.bancos || []).map((b) => ({ ...b, sitios: (b.largo > 2 ? [-0.65, 0, 0.65] : [-0.45, 0.45]).map((u) => ({ u, quien: null })) }));
+  const sillas = (vida.sillas || []).map((s) => ({ ...s, quien: null }));
+  const asientosIglesia = (sitiosIglesia?.bancos || []).map((s) => ({ ...s, quien: null }));
+  const tiendas = vida.tiendas || [], portales = vida.portales || [];
+  const plazasNodos = []; for (let i = 0; i < n; i++) if (PLAZA[i]) plazasNodos.push(i);
+  const vecinosQueAndan = () => gente.filter((v) => v.estado === 'andar').length;
+
+  const cam = () => camara.getPosition(), yo = () => chica.getPosition();
+  const enVista = (x, y, z) => {
+    va.set(x, y + 1.2, z); const c = cam();
+    if (Math.hypot(x - c.x, z - c.z) > 110) return false;
+    if (!camara.camera.frustum.containsPoint(va)) return false;
+    // (tapado por una casa: el rayo de la cámara a la cabeza choca antes con algo)
+    const h = app.systems.rigidbody.raycastFirst(c, va);
+    return !(h && Math.hypot(h.point.x - x, h.point.z - z) > 1.5 && !h.entity?.tags?.has('gente'));
+  };
+
+  // la hora, el día y el mes del juego
+  const ahora = () => {
+    const h = reloj ? reloj.hora : 12, d = reloj ? ((reloj.diaSemana + reloj.dia) % 7 + 7) % 7 : new Date().getDay(), m = new Date().getMonth() + 1;
+    return { h, d, m };
+  };
+  const enMisa = () => { const { h, d, m } = ahora(), mh = misaHora(d, m); return { antes: h > mh - 0.6 && h < mh - 0.05, durante: h >= mh - 0.05 && h < mh + 0.7, salida: h >= mh + 0.7 && h < mh + 0.95 }; };
+  const iglesiaCentro = sitiosIglesia ? (() => { const s = sitiosIglesia.bancos; return [s.reduce((a, b) => a + b.asiento[0], 0) / s.length, s.reduce((a, b) => a + b.asiento[1], 0) / s.length]; })() : null;
+  const dentroIglesia = (x, z) => iglesiaCentro && Math.hypot(x - iglesiaCentro[0], z - iglesiaCentro[1]) < 17;
+
+  // ---- nacer: uno nuevo en un sitio, con lo que va a hacer
+  function nacer(pi, x, z, y = null) {
+    const v = crear(pi); v.clip = null; v.clipYa = false;
+    Object.assign(v, { x, z, y: y ?? suelo(x, z), yaw: Math.random() * Math.PI * 2, estado: 'quieto', ruta: null, k: 0, lado: 0, fin: null, hasta: 0, desvio: 0, ocupado: false, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null, giroCab: 0, quiereIrse: false, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, sombra: undefined, antes: null });
+    v.paso = PASO[v.info.tipo === 'mayor' ? 'pasear' : 'andar'] * azar(0.95, 1.04); v.clipAndar = v.info.tipo === 'mayor' ? 'pasear' : 'andar';
+    v.raiz.setPosition(x, v.y, z); gente.push(v); return v;
+  }
+  function morir(v) {
+    if (v.sitio) v.sitio.quien = null;
+    v.raiz.enabled = false; POOL[v.pi].push(v);
+    const i = gente.indexOf(v); if (i >= 0) gente.splice(i, 1);
+    if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); }
+  }
+  // echar a andar hacia un sitio (x, z), con lo que hace al llegar
+  function irA(v, x, z, fin) {
+    const a = nodoCerca(v.x, v.z, 30), b = nodoCerca(x, z, 40);
+    const r = caminoEntre(a, b);
+    if (!r) return false;
+    v.ruta = r; v.k = 0; v.lado = ladoDe(r[0], v.x, v.z); v.fin = { x, z, ...fin }; v.estado = 'andar'; poner(v, v.clipAndar); return true;
+  }
+  // a dónde va uno que pasa: a un portal, a una tienda, a la plaza o a la iglesia (si es la hora de misa)
+  function destino(v) {
+    const { antes } = enMisa();
+    if (antes && sitiosIglesia && v.info.tipo !== 'nino' && Math.random() < (v.info.tipo === 'mayor' ? 0.7 : 0.25)) {
+      const p = elegir(sitiosIglesia.puertas); return [p.fuera[0], p.fuera[1], { tipo: 'iglesia' }];
+    }
+    const r = Math.random();
+    if (r < 0.32 && tiendas.length) { const t = cercaDe(tiendas, v.x, v.z, 40, 260); if (t) return [t.p[0] + t.n[0] * 0.6, t.p[2] + t.n[1] * 0.6, { tipo: 'tienda', mira: [-t.n[0], -t.n[1]] }]; }
+    if (r < 0.7 && portales.length) { const t = cercaDe(portales, v.x, v.z, 30, 220); if (t) return [t.p[0] + t.n[0] * 0.5, t.p[2] + t.n[1] * 0.5, { tipo: 'portal', mira: [-t.n[0], -t.n[1]] }]; }
+    if (plazasNodos.length && Math.random() < 0.6) { const j = cercaNodo(plazasNodos, v.x, v.z, 40, 300); if (j >= 0) { const c = enExplanada(j); return [c[0], c[1], { tipo: 'paseo' }]; } } // (cruzando la plaza)
+    const j = Math.floor(Math.random() * n); if (Math.hypot(X[j] - v.x, Z[j] - v.z) < 300) { const c = carril(j, 0); return [c[0], c[1], { tipo: 'paseo' }]; }
+    return null;
+  }
+  const cercaDe = (lista, x, z, dmin, dmax) => {
+    for (let t = 0; t < 12; t++) { const s = elegir(lista), d = Math.hypot(s.p[0] - x, s.p[2] - z); if (d > dmin && d < dmax) return s; }
+    return null;
+  };
+  const cercaNodo = (lista, x, z, dmin, dmax) => {
+    for (let t = 0; t < 12; t++) { const s = elegir(lista), d = Math.hypot(X[s] - x, Z[s] - z); if (d > dmin && d < dmax) return s; }
+    return -1;
+  };
+
+  // los papeles: andar (de un sitio a otro), charlar (un corro de dos o tres), sentado (en un banco o una silla), jugar (los niños)
+  function nuevoAndando(pi, i, lado) {
+    const c = carril(i, lado); const v = nacer(pi, c[0], c[1]); v.lado = lado;
+    const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { morir(v); return null; }
+    return v;
+  }
+  function nuevoCorro(i, tipos) {
+    const lado = Math.random() < 0.5 ? 0 : 1, N_ = tipos.length, r = N_ === 2 ? 0.48 : 0.62, a0 = Math.random() * Math.PI * 2;
+    // (en la acera, el corro con sitio entre la pared y el bordillo: si la acera es estrecha, el centro, más afuera)
+    const dLado = Math.max(0.5, Math.min(OF[lado][i], PARED[lado][i] - r - 0.45)) * (lado ? -1 : 1);
+    const c = PLAZA[i] && Math.random() < 0.6 ? enExplanada(i) : [X[i] + NX[i] * dLado, Z[i] + NZ[i] * dLado];
+    if (!libreDeCoches(c[0], c[1], 1.0)) return null; // (el corro, con sitio alrededor: no pegado a un coche aparcado)
+    const g = { x: c[0], z: c[1], miembros: [], hasta: performance.now() / 1000 + azar(40, 200) };
+    const usados = new Set();
+    tipos.forEach((t, k) => {
+      const lista = deTipo[t].filter((p) => ASSETS[p] && !usados.has(p)); if (!lista.length) return; const pi = elegir(lista); usados.add(pi);
+      const a = a0 + k * Math.PI * 2 / N_, v = nacer(pi, c[0] + Math.sin(a) * r, c[1] + Math.cos(a) * r);
+      v.yaw = Math.atan2(c[0] - v.x, c[1] - v.z); v.estado = 'charla'; v.grupo = g; v.lado = lado; poner(v, k === 0 ? 'charla' : 'quieto'); g.miembros.push(v);
+    });
+    return g;
+  }
+  function sentar(pi, b, s) {
+    const tx = -b.mira[1], tz = b.mira[0]; // (a lo largo del banco)
+    const x = b.p[0] + tx * s.u - b.mira[0] * 0.12, z = b.p[2] + tz * s.u - b.mira[1] * 0.12;
+    const v = nacer(pi, x, z, b.p[1] - 0.46); v.yaw = Math.atan2(b.mira[0], b.mira[1]); v.estado = 'sentado'; v.sitio = s; s.quien = v;
+    v.hasta = performance.now() / 1000 + azar(60, 400); poner(v, Math.random() < 0.4 ? 'charla_sentado' : 'sentado'); return v;
+  }
+  function nuevoJugando(i) {
+    const lista = deTipo.nino.filter((p) => ASSETS[p]); if (!lista.length) return;
+    const g = { x: X[i], z: Z[i], nodo: i, miembros: [], hasta: performance.now() / 1000 + azar(120, 400), jugar: true };
+    for (let k = 0, N_ = 2 + Math.floor(Math.random() * 3); k < N_; k++) {
+      const v = nacer(elegir(lista), X[i] + azar(-2, 2), Z[i] + azar(-2, 2)); v.estado = 'jugar'; v.grupo = g; v.paso = PASO.correr * azar(0.85, 1); g.miembros.push(v); poner(v, 'quieto'); v.hasta = 0;
+    }
+  }
+  // un sitio para jugar en la plaza: cerca de su eje, dentro de lo que hay de bordillo a bordillo
+  const sitioJuego = (g) => {
+    const i = g.nodo, cerc = []; cerca(X[i], Z[i], 10, (j) => { if (PLAZA[j] && CALLE[j] === CALLE[i]) cerc.push(j); });
+    return enExplanada(cerc.length ? elegir(cerc) : i);
+  };
+
+  // ---- cuántos tocan alrededor de la chica, y el reparto de los papeles
+  let objetivo = 0, ultimaCuenta = -1e9, pesoLocal = 0;
+  function contar() {
+    const p = yo(); pesoLocal = 0;
+    cerca(p.x, p.z, RADIO, (j) => { if (Math.hypot(X[j] - p.x, Z[j] - p.z) < RADIO) pesoLocal += W[j]; });
+    const { h, d, m } = ahora();
+    objetivo = Math.min(TOPE, Math.round(VECINOS * enLaCalle(h, d, m) * pesoLocal / WT * FACTOR * 2.2));
+    // (×2,2: los que se ven son los de la calle de verdad más los que están en la puerta de casa, en las terrazas y en los
+    // corros, que en el plano de calles no cuentan; ver docs/gente.md)
+    const misa = enMisa();
+    if (misa.durante && iglesiaCentro && Math.hypot(p.x - iglesiaCentro[0], p.z - iglesiaCentro[1]) < 45) objetivo = Math.min(TOPE, objetivo + (d === 0 ? 34 : 18));
+  }
+
+  // un sitio para que aparezca alguien: en la acera, a una distancia, donde no se vea
+  function sitioOculto(dmin, dmax, f = null) {
+    const p = yo();
+    for (let t = 0; t < 25; t++) {
+      const a = Math.random() * Math.PI * 2, r = azar(dmin, dmax), x = p.x + Math.sin(a) * r, z = p.z + Math.cos(a) * r;
+      const i = nodoCerca(x, z, 10, f); if (i < 0) continue;
+      const lado = Math.random() < 0.5 ? 0 : 1, c = carril(i, lado);
+      if (dentroIglesia(c[0], c[1]) || !libreDeCoches(c[0], c[1], 0.4)) continue;
+      if (!enVista(c[0], 0, c[1])) return { i, lado, x: c[0], z: c[1] };
+    }
+    return null;
+  }
+  function poblar(inicial = false) {
+    const { h, d } = ahora(), oscuro = (reloj?.noche ?? 0) > 0.6, mezcla = mezclaDe(h, d, oscuro), misa = enMisa(), p = yo();
+    const dmin = inicial ? 6 : 28, dmax = RADIO * 0.95;
+    // la misa: los bancos de la iglesia se van llenando desde 35 minutos antes (si la chica anda cerca). Donde no se ve,
+    // aparecen ya sentados; si no, entran por una puerta, van por el pasillo hasta su fila y se sientan
+    if ((misa.durante || misa.antes) && asientosIglesia.length && iglesiaCentro && Math.hypot(p.x - iglesiaCentro[0], p.z - iglesiaCentro[1]) < 45) {
+      const total = d === 0 ? 34 : 18, falta = misaHora(d, ahora().m) - h;
+      const quiere = misa.durante ? total : Math.round(total * Math.max(0.15, 1 - falta / 0.6));
+      const ocupados = asientosIglesia.filter((s) => s.quien).length;
+      if (ocupados < quiere) {
+        const libres = asientosIglesia.filter((s) => !s.quien), t = pesar([0.6, 0.3, 0.05, 0.05]), lista = deTipo[TIPOS[t]].filter((x) => ASSETS[x]);
+        if (libres.length && lista.length) {
+          const ocultos = inicial ? libres : libres.filter((s) => !enVista(s.asiento[0], 0.3, s.asiento[1]));
+          if (ocultos.length && (inicial || Math.random() < 0.5)) {
+            const s = elegir(ocultos), v = nacer(elegir(lista), s.asiento[0] - s.mira[0] * 0.12, s.asiento[1] - s.mira[1] * 0.12, s.asiento[2] - 0.46);
+            v.yaw = Math.atan2(s.mira[0], s.mira[1]); v.estado = 'misa'; v.sitio = s; s.quien = v; poner(v, 'sentado');
+          } else {
+            const s = elegir(libres), pta = elegir(sitiosIglesia.puertas), v = nacer(elegir(lista), pta.dentro[0], pta.dentro[1], 0);
+            v.puntos = [...(pta.via || []), s.pasillo, s.fila]; v.estado = 'andar_directo'; v.sitio = s; s.quien = v;
+            v.fin = { x: s.rodillas[0], z: s.rodillas[1], tipo: 'asiento_misa', sitio: s }; poner(v, v.clipAndar);
+          }
+          return;
+        }
+      }
+    }
+    const t = pesar(mezcla), tipo = TIPOS[t], lista = deTipo[tipo].filter((x) => ASSETS[x]);
+    if (!lista.length) return;
+    // los niños por la tarde, a jugar a la plaza (si hay plaza cerca); si no, con un mayor de la mano... andando cerca
+    // (un grupo son de 2 a 4: para que los niños sean los que tocan y no el triple, solo una vez de cada tres)
+    if (tipo === 'nino' && Math.random() < (oscuro ? 0.15 : 0.34) && (h > 16.5 && h < 21 || (d === 0 || d === 6) && h > 10.5 && h < 14) && plazasNodos.length) {
+      const s = sitioOculto(inicial ? 6 : 20, dmax, (j) => PLAZA[j] === 1);
+      if (s) { nuevoJugando(s.i); return; }
+    }
+    const r = Math.random();
+    // sentarse en un banco libre (sobre todo los mayores, y de día)
+    const quiereBanco = tipo === 'mayor' ? 0.4 : tipo === 'joven' ? 0.15 : 0.08;
+    if (r < quiereBanco && h > 9 && h < 22) {
+      const libres = [];
+      for (const b of bancosLibres) {
+        const dd = Math.hypot(b.p[0] - p.x, b.p[2] - p.z); if (dd > dmax || dd < (inicial ? 3 : 18)) continue;
+        for (const s of b.sitios) if (!s.quien) libres.push([b, s]);
+      }
+      const ok = libres.filter(([b]) => inicial || !enVista(b.p[0], b.p[1], b.p[2]));
+      if (ok.length) { const [b, s] = elegir(ok); sentar(elegir(lista), b, s); return; }
+    }
+    // a la puerta de casa, en una silla: los mayores, al sol del mediodía en invierno y al fresco de la tarde el resto del año
+    const { m } = ahora(), invierno = m >= 11 || m <= 3;
+    if (tipo === 'mayor' && sillas.length && Math.random() < 0.35 && (invierno ? h > 11 && h < 15.5 : h > 18 && h < 22.5)) {
+      const libres = sillas.filter((s) => !s.quien && Math.hypot(s.p[0] - p.x, s.p[2] - p.z) < dmax && (inicial || !enVista(s.p[0], s.p[1], s.p[2])));
+      if (libres.length) {
+        const s = elegir(libres), v = nacer(elegir(lista), s.p[0] - s.mira[0] * 0.04, s.p[2] - s.mira[1] * 0.04, s.p[1]);
+        v.yaw = Math.atan2(s.mira[0], s.mira[1]); v.estado = 'sentado'; v.sitio = s; s.quien = v; v.hasta = performance.now() / 1000 + azar(300, 1200); poner(v, Math.random() < 0.5 ? 'sentado' : 'charla_sentado');
+        return;
+      }
+    }
+    // un corro (más a media mañana, a la salida de misa y al paseo de la tarde)
+    if (r < quiereBanco + (tipo === 'mayor' ? 0.25 : 0.18)) {
+      const s = sitioOculto(inicial ? 5 : 22, dmax);
+      if (s) { const N_ = Math.random() < 0.65 ? 2 : 3, tipos = Array.from({ length: N_ }, (_, k) => (k === 0 ? tipo : TIPOS[pesar(mezcla.map((m, i) => (i === 3 ? 0 : m)))])); nuevoCorro(s.i, tipos); return; }
+    }
+    // andar: de dos en dos alguna vez (una pareja, una madre con su niño)
+    const s = sitioOculto(dmin, dmax); if (!s) return;
+    const v = nuevoAndando(elegir(lista), s.i, s.lado);
+    if (v && Math.random() < 0.22) {
+      const t2 = tipo === 'nino' ? 'adulto' : Math.random() < 0.15 && tipo === 'adulto' ? 'nino' : tipo, l2 = deTipo[t2].filter((x) => ASSETS[x] && x !== v.pi);
+      if (l2.length) {
+        const c = carril(s.i, s.lado); const w = nacer(elegir(l2), c[0], c[1]); w.lado = s.lado; w.pareja = v; w.paso = v.paso;
+        w.ruta = v.ruta; w.k = 0; w.fin = v.fin; w.estado = 'andar'; w.clipAndar = v.clipAndar; poner(w, w.clipAndar);
+      }
+    }
+  }
+
+  // ---- cada fotograma
+  const qa = new Quat(), tmp = [0, 0];
+  let reloj_ = 0, cuentaAltura = 0, cuentaGente = 0;
+  const salirDeMisa = (v) => {
+    // al acabar la misa, se levantan y salen (los que están a la vista, despacio; los demás, se van sin más)
+    if (!sitiosIglesia) return morir(v);
+    const pta = elegir(sitiosIglesia.puertas), st = v.sitio; v.sitio && (v.sitio.quien = null); v.sitio = null;
+    // (por su fila al pasillo, por el pasillo a la puerta —por el que cruza entre los bancos, si es una del lado— y fuera)
+    v.puntos = st ? [st.rodillas, st.fila, st.pasillo, ...[...(pta.via || [])].reverse(), pta.dentro] : [pta.dentro];
+    v.estado = 'andar_directo'; v.fin = { x: pta.fuera[0], z: pta.fuera[1], tipo: 'fuera_misa', luego: pta }; poner(v, 'levantarse', 0.2); v.t = 1.1;
+  };
+
+  app.on('update', (dt) => {
+    if (!listos.length) return;
+    dt = Math.min(dt, 0.1);
+    const tt = performance.now() / 1000, p = yo(), ec = conducir?.(), conduce = ec?.modo === 'conduciendo' && ec.pos ? { x: ec.pos[0], z: ec.pos[2] } : null;
+    // contar y poblar, cada medio segundo (al principio, todos de golpe)
+    reloj_ -= dt;
+    if (reloj_ <= 0) {
+      reloj_ = 0.5;
+      if (tt - ultimaCuenta > 2) { contar(); ultimaCuenta = tt; }
+      const inicial = cuentaGente === 0;
+      if (inicial) { for (let k = 0; k < objetivo * 2 && gente.length < objetivo; k++) poblar(true); cuentaGente = 1; }
+      else if (gente.length < objetivo) poblar(false);
+      // irse: lejos y sin que se vea, o demasiados
+      for (const v of gente.slice()) {
+        const d = Math.hypot(v.x - p.x, v.z - p.z);
+        if (v.ocupado) continue;
+        if ((d > RADIO + 15 && !enVista(v.x, v.y, v.z)) || d > RADIO + 45) { if (v.grupo) { for (const o of v.grupo.miembros.slice()) morir(o); } else morir(v); }
+      }
+      if (gente.length > objetivo + 4) {
+        const lejos = gente.filter((v) => !v.ocupado && !enVista(v.x, v.y, v.z)).sort((a, b) => Math.hypot(b.x - p.x, b.z - p.z) - Math.hypot(a.x - p.x, a.z - p.z));
+        if (lejos[0]) morir(lejos[0]);
+      }
+      // la misa: al acabar, a la calle
+      const misa = enMisa();
+      if (!misa.durante) for (const v of gente.slice()) if (v.estado === 'misa') { if (!enVista(v.x, v.y, v.z) && Math.random() < 0.5) morir(v); else salirDeMisa(v); }
+      // las sombras, solo de los cercanos
+      for (const v of gente) { const cs = Math.hypot(v.x - p.x, v.z - p.z) < 32; if (v.sombra !== cs) { v.sombra = cs; for (const r of v.e.findComponents('render')) r.castShadows = cs; } }
+    }
+
+    for (const v of gente) actualizar(v, dt, tt, p, conduce);
+    // los corros que se deshacen: cada uno, a lo suyo
+    for (const v of gente) if (v.grupo && !v.grupo.jugar && tt > v.grupo.hasta && v.estado === 'charla' && !v.ocupado) {
+      const g = v.grupo; for (const o of g.miembros) { o.grupo = null; const d = destino(o); if (!d || !irA(o, d[0], d[1], d[2])) o.quiereIrse = true; }
+    }
+    cuentaAltura++;
+    capsulas(p, conduce);
+  });
+
+  function actualizar(v, dt, tt, p, conduce) {
+    if (v.ocupado) { girarHacia(v, v.mira, dt, 5); v.raiz.setPosition(v.x, v.y, v.z); v.raiz.setEulerAngles(0, v.yaw * 180 / Math.PI, 0); return; }
+    const dChica = Math.hypot(v.x - p.x, v.z - p.z);
+    if (v.estado === 'andar' || v.estado === 'andar_directo') {
+      // el punto al que va: el de la acera del siguiente punto de su calle o, al final, el sitio
+      let tx, tz;
+      if (v.estado === 'andar' && v.ruta && v.k < v.ruta.length) {
+        const i = v.ruta[v.k];
+        if (v.k > 0 && CALLE[i] !== CALLE[v.ruta[v.k - 1]]) v.lado = ladoDe(i, v.x, v.z); // (al cambiar de calle, por la acera de su lado)
+        carril(i, v.lado, tmp); tx = tmp[0]; tz = tmp[1];
+        if (v.pareja) {
+          // (el de al lado, un paso hacia la calzada si cabe en la acera; si no, hacia la pared; y si tampoco, detrás)
+          const c_ = BORDE[v.lado][i], w_ = PARED[v.lado][i], o_ = OF[v.lado][i];
+          const sep = o_ - 0.62 >= c_ + 0.3 ? -0.62 : o_ + 0.62 <= w_ - 0.3 ? 0.62 : 0, sg = v.lado ? -1 : 1;
+          tx += NX[i] * sg * sep; tz += NZ[i] * sg * sep; v.enFila = sep === 0;
+        }
+        // (si entre él y ese punto hay una pared o un coche —al doblar una esquina, la línea recta corta el pico de la casa—,
+        // primero por el centro de la calle, como quien cruza)
+        if (v.kVisto !== v.k) { v.kVisto = v.k; v.rodeo = hayPaso(v.x, v.z, tx, tz, v.y) ? null : [X[i], Z[i]]; }
+        if (v.rodeo) { if (Math.hypot(v.rodeo[0] - v.x, v.rodeo[1] - v.z) < 0.6) v.rodeo = null; else { tx = v.rodeo[0]; tz = v.rodeo[1]; } }
+        if (!v.rodeo && Math.hypot(tx - v.x, tz - v.z) < 1.2) { v.k++; }
+      } else if (v.puntos?.length) { tx = v.puntos[0][0]; tz = v.puntos[0][1]; if (Math.hypot(tx - v.x, tz - v.z) < 0.4) v.puntos.shift(); }
+      else { tx = v.fin.x; tz = v.fin.z; }
+      if (v.estado === 'andar_directo' && v.t > 0) { v.t -= dt; if (v.t > 0) { mover(v, dt); return; } poner(v, v.clipAndar); }
+      let dx = tx - v.x, dz = tz - v.z; const l = Math.hypot(dx, dz);
+      if (l < 0.35 && !v.puntos?.length && (v.estado === 'andar_directo' || !v.ruta || v.k >= v.ruta.length)) { llegar(v, tt); mover(v, dt); return; }
+      dx /= l || 1; dz /= l || 1;
+      // apartarse: de la chica (o del coche, si va conduciendo) y de los demás que vienen de frente
+      let lat = 0, para = false;
+      const ox = conduce || p;
+      const ax = ox.x - v.x, az = ox.z - v.z, adel = ax * dx + az * dz, lado_ = ax * dz - az * dx;
+      if (adel > 0 && adel < (conduce ? 9 : 2.2) && Math.abs(lado_) < (conduce ? 2.2 : 0.75)) { lat = lado_ > 0 ? -1 : 1; if (!conduce && adel < 0.8) para = true; }
+      // (un coche aparcado delante, en su camino: se le rodea por el lado que le queda más lejos del coche, más despacio)
+      let frena = false;
+      for (const k of window.foto?.coches?.coches || []) {
+        const c = k.caja; if (!c || Math.abs(c.x - v.x) > 6 || Math.abs(c.z - v.z) > 6) continue;
+        for (const ad of [0.8, 1.6]) {
+          const px = v.x + dx * ad, pz = v.z + dz * ad, rx = px - c.x, rz = pz - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx;
+          if (Math.abs(lx) < c.L / 2 + 0.35 && Math.abs(lz) < c.W / 2 + 0.35) { const la = (c.x - v.x) * dz - (c.z - v.z) * dx; lat = la > 0 ? -1 : 1; frena = true; break; }
+        }
+      }
+      for (const o of gente) {
+        if (o === v || o === v.pareja || v === o.pareja) continue;
+        const bx = o.x - v.x, bz = o.z - v.z; if (Math.abs(bx) > 2 || Math.abs(bz) > 2) continue;
+        const ad = bx * dx + bz * dz, la = bx * dz - bz * dx;
+        if (ad > 0 && ad < 1.8 && Math.abs(la) < 0.6) lat = la > 0 ? -1 : 1;
+      }
+      v.desvio += ((lat * (conduce ? 1.6 : 0.7)) - v.desvio) * Math.min(1, dt * 3);
+      let vel = para ? 0 : (conduce && lat ? Math.max(v.paso, 1.8) : frena ? v.paso * 0.35 : v.paso);
+      if (v.enFila && v.pareja && Math.hypot(v.pareja.x - v.x, v.pareja.z - v.z) < 0.9) vel *= 0.5; // (en fila, a un paso del de delante)
+      if (para) { if (v.clip !== 'quieto') poner(v, 'quieto', 0.25); } else if (v.clip !== v.clipAndar && !(v.estado === 'andar_directo' && v.t > 0)) poner(v, v.clipAndar, 0.25);
+      const yawQ = Math.atan2(dx, dz); v.yaw += angulo(yawQ - v.yaw) * Math.min(1, dt * 6);
+      const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
+      v.x += (fx * vel + dz * v.desvio * 0.9 * (vel > 0 ? 1 : 0)) * dt; v.z += (fz * vel - dx * v.desvio * 0.9 * (vel > 0 ? 1 : 0)) * dt;
+      // la altura: el suelo, cada cuarto de segundo, y suave (los bordillos, las gradas)
+      // (un poco por delante de donde pisa, para subir el bordillo o el escalón a tiempo)
+      if ((v.alturaT -= dt) <= 0) { v.alturaT = 0.12; v.yObj = suelo(v.x + fx * 0.2, v.z + fz * 0.2, v.y); }
+      if (v.yObj != null) v.y += (v.yObj - v.y) * Math.min(1, dt * 16);
+      mover(v, dt);
+      return;
+    }
+    if (v.estado === 'jugar') {
+      // correr de un sitio a otro de la plaza, pararse un poco, y otra vez
+      if (!v.objetivo || Math.hypot(v.objetivo[0] - v.x, v.objetivo[1] - v.z) < 0.5) {
+        if (!v.parado) { v.parado = azar(0.4, 2.5); poner(v, 'quieto', 0.2); }
+        v.parado -= dt; if (v.parado <= 0) { v.parado = 0; v.objetivo = Math.random() < 0.35 && v.grupo.miembros.length > 1 ? (() => { const o = elegir(v.grupo.miembros); return [o.x, o.z]; })() : sitioJuego(v.grupo); poner(v, 'correr', 0.2); }
+      } else {
+        const dx = v.objetivo[0] - v.x, dz = v.objetivo[1] - v.z, l = Math.hypot(dx, dz) || 1;
+        const yawQ = Math.atan2(dx, dz); v.yaw += angulo(yawQ - v.yaw) * Math.min(1, dt * 8);
+        const vel = Math.cos(angulo(yawQ - v.yaw)) > 0.5 ? v.paso : v.paso * 0.4;
+        v.x += Math.sin(v.yaw) * vel * dt * Math.min(1, l); v.z += Math.cos(v.yaw) * vel * dt * Math.min(1, l);
+        if (dChica < 0.9) { v.objetivo = null; v.parado = 0.8; poner(v, 'quieto', 0.2); }
+        if ((v.alturaT -= dt) <= 0) { v.alturaT = 0.3; v.yObj = suelo(v.x, v.z, v.y); }
+        if (v.yObj != null) v.y += (v.yObj - v.y) * Math.min(1, dt * 10);
+      }
+      if (tt > v.grupo.hasta && !enVista(v.x, v.y, v.z)) { morir(v); return; }
+      mover(v, dt); return;
+    }
+    if (v.estado === 'charla') {
+      // en el corro: uno habla y los demás escuchan, y se van turnando
+      if (tt > (v.turno || 0)) { v.turno = tt + azar(3, 9); poner(v, Math.random() < 0.45 ? 'charla' : 'quieto', 0.4); }
+      if (v.quiereIrse && !enVista(v.x, v.y, v.z)) { morir(v); return; }
+      mirarChica(v, p, dChica, dt); mover(v, dt); return;
+    }
+    if (v.estado === 'sentado' || v.estado === 'misa') {
+      if (v.trasSentarse && tt > v.trasSentarse) { v.trasSentarse = 0; poner(v, 'sentado', 0.3); }
+      if (v.estado === 'sentado' && tt > (v.turno || 0)) { v.turno = tt + azar(6, 20); if (Math.random() < 0.3) poner(v, v.clip === 'sentado' ? 'charla_sentado' : 'sentado', 0.6); }
+      if (v.estado === 'sentado' && tt > v.hasta) {
+        // se levanta y se va a otro sitio
+        v.sitio && (v.sitio.quien = null); v.sitio = null; poner(v, 'levantarse', 0.2); v.estado = 'levantandose'; v.t = 1.1;
+      }
+      mirarChica(v, p, dChica, dt); mover(v, dt); return;
+    }
+    if (v.estado === 'levantandose') {
+      v.t -= dt; if (v.t <= 0) {
+        // (de pie: un paso hacia delante, que sentado estaba más atrás)
+        v.x += Math.sin(v.yaw) * 0.35; v.z += Math.cos(v.yaw) * 0.35; v.y = suelo(v.x, v.z, v.y);
+        const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto'); }
+      }
+      mover(v, dt); return;
+    }
+    if (v.estado === 'llegado') {
+      // en la puerta: se mete en cuanto no se le ve (buscando las llaves, mirando el escaparate)
+      if (!enVista(v.x, v.y, v.z) || tt > v.hasta + 25) { morir(v); return; }
+      if (v.fin?.mira) girarHacia(v, v.fin.mira, dt, 3);
+      mover(v, dt); return;
+    }
+    if (v.estado === 'quieto') {
+      if (v.quiereIrse && !enVista(v.x, v.y, v.z)) { morir(v); return; }
+      mirarChica(v, p, dChica, dt); mover(v, dt);
+    }
+  }
+  function llegar(v, tt) {
+    const f = v.fin || {}; v.ruta = null;
+    if (f.tipo === 'fuera_misa') {
+      // fuera de la iglesia: cada uno a su casa
+      const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto'); }
+      return;
+    }
+    if (f.tipo === 'paseo') {
+      // en la plaza: sentarse si hay un banco libre cerca, o seguir paseando
+      const b = bancosLibres.find((b) => Math.hypot(b.p[0] - v.x, b.p[2] - v.z) < 14 && b.sitios.some((s) => !s.quien));
+      if (b && v.info.tipo !== 'nino' && Math.random() < 0.6) {
+        const s = b.sitios.find((s) => !s.quien); const tx = -b.mira[1], tz = b.mira[0];
+        v.fin = { x: b.p[0] + tx * s.u + b.mira[0] * 0.45, z: b.p[2] + tz * s.u + b.mira[1] * 0.45, tipo: 'banco', banco: b, sitio: s }; s.quien = v; v.sitio = s;
+        v.estado = 'andar_directo'; return;
+      }
+      const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto'); }
+      return;
+    }
+    if (f.tipo === 'asiento_misa') {
+      const st = f.sitio; v.x = st.asiento[0] - st.mira[0] * 0.12; v.z = st.asiento[1] - st.mira[1] * 0.12; v.y = st.asiento[2] - 0.46;
+      v.yaw = Math.atan2(st.mira[0], st.mira[1]); v.estado = 'misa'; poner(v, 'sentarse', 0.2); v.trasSentarse = tt + 1.3;
+      return;
+    }
+    if (f.tipo === 'banco') {
+      // sentarse: de espaldas al banco, y abajo
+      const b = f.banco, s = f.sitio, tx = -b.mira[1], tz = b.mira[0];
+      v.x = b.p[0] + tx * s.u - b.mira[0] * 0.12; v.z = b.p[2] + tz * s.u - b.mira[1] * 0.12; v.y = b.p[1] - 0.46;
+      v.yaw = Math.atan2(b.mira[0], b.mira[1]); v.estado = 'sentado'; v.hasta = tt + azar(60, 300); poner(v, 'sentarse', 0.2); v.trasSentarse = tt + 1.3; v.turno = tt + 6;
+      return;
+    }
+    if (f.tipo === 'iglesia' || f.tipo === 'tienda' || f.tipo === 'portal') { v.estado = 'llegado'; v.hasta = tt; poner(v, 'quieto', 0.3); return; }
+    v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto');
+  }
+  function girarHacia(v, m, dt, k) { if (!m) return; const y = Math.atan2(m[0], m[1]); v.yaw += angulo(y - v.yaw) * Math.min(1, dt * k); }
+  function mover(v) { v.raiz.setPosition(v.x, v.y, v.z); v.raiz.setEulerAngles(0, v.yaw * 180 / Math.PI, 0); }
+  // la cabeza hacia la chica, si está cerca y delante (los que están parados o sentados)
+  function mirarChica(v, p, d, dt) {
+    if (!v.cabeza) return;
+    let obj = 0;
+    if (d < 7 && d > 0.3) { const a = angulo(Math.atan2(p.x - v.x, p.z - v.z) - v.yaw); obj = Math.abs(a) < 1.8 ? Math.max(-1.1, Math.min(1.1, a)) : 0; }
+    v.giroCab += (obj - v.giroCab) * Math.min(1, dt * 2.5);
+    if (Math.abs(v.giroCab) < 0.01) return;
+    for (const [h, parte] of [[v.cuello, 0.4], [v.cabeza, 0.6]]) { if (!h) continue; qa.setFromAxisAngle(Vec3.UP, v.giroCab * parte * 180 / Math.PI); h.setRotation(qa.mul(h.getRotation().clone())); }
+  }
+
+  // ---- las cápsulas: los seis más cercanos a la chica, para que no los atraviese (no mientras conduce: el coche se pararía en seco)
+  const CAPS = [];
+  for (let k = 0; k < 6; k++) {
+    const c = new Entity('gente_capsula'); c.tags.add('gente');
+    c.addComponent('collision', { type: 'capsule', radius: 0.24, height: 1.6 }); c.addComponent('rigidbody', { type: 'kinematic' });
+    c.enabled = false; app.root.addChild(c); CAPS.push(c);
+  }
+  function capsulas(p, conduce) {
+    const cerc = conduce ? [] : gente.filter((v) => Math.abs(v.x - p.x) < 5 && Math.abs(v.z - p.z) < 5).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z)).slice(0, CAPS.length);
+    CAPS.forEach((c, k) => {
+      const v = cerc[k];
+      if (!v) { if (c.enabled) c.enabled = false; return; }
+      const sentado = v.estado === 'sentado' || v.estado === 'misa';
+      c.setPosition(v.x + (sentado ? Math.sin(v.yaw) * 0.2 : 0), v.y + 0.82, v.z + (sentado ? Math.cos(v.yaw) * 0.2 : 0));
+      if (!c.enabled) { c.enabled = true; c.rigidbody.teleport(c.getPosition()); }
+    });
+  }
+
+  // ---- para hablar con ellos (src/acciones.js) y para las pruebas
+  const api = {
+    lista: gente,
+    cuantos: () => ({ hay: gente.length, objetivo, enLaCalle: Math.round(VECINOS * enLaCalle(ahora().h, ahora().d, ahora().m)), pesoLocal: Math.round(pesoLocal), estados: gente.reduce((o, v) => ((o[v.estado] = (o[v.estado] || 0) + 1), o), {}) }),
+    // el más cercano a un punto, delante de la chica si se da su rumbo
+    cercano: (x, z, r = 2.2) => { let m = null, dm = r; for (const v of gente) { if (v.estado === 'llegado') continue; const d = Math.hypot(v.x - x, v.z - z); if (d < dm) { dm = d; m = v; } } return m; },
+    hablar: (v, x, z) => {
+      v.ocupado = true; v.antes = { clip: v.clip, estado: v.estado };
+      v.mira = [x - v.x, z - v.z];
+      const sentado = v.estado === 'sentado' || v.estado === 'misa';
+      if (!sentado) { v.mira = [x - v.x, z - v.z]; poner(v, 'charla', 0.3); } else { v.mira = null; poner(v, 'charla_sentado', 0.3); }
+      if (v.grupo && !v.grupo.jugar) v.grupo.hasta += 30;
+    },
+    soltar: (v) => { if (!v) return; v.ocupado = false; v.mira = null; if (v.antes) poner(v, v.antes.clip === 'charla' ? 'quieto' : v.antes.clip, 0.4); },
+    saludar: (v) => v.saludo?.empezar(),
+    nacer: (tipo, x, z) => { const l = deTipo[tipo].filter((i) => ASSETS[i]); const v = nacer(elegir(l), x, z); v.estado = 'quieto'; poner(v, 'quieto'); return v; },
+    destino, carril, nodoCerca, camino: caminoEntre, enLaCalle, misa: enMisa, nodos: n,
+    // (para las pruebas, tools/prueba_gente.py) empezar de cero con la hora y el sitio de ahora, como al cargar
+    reiniciar: () => { for (const v of gente.slice()) morir(v); cuentaGente = 0; ultimaCuenta = -1e9; reloj_ = 0; },
+    // si lo que hace cada uno tiene sentido: nadie encima de un coche aparcado, flotando o hundido; y dónde está cada uno,
+    // para mirar fuera, con las casas del Catastro, que nadie está dentro de una (tools/prueba_gente.py)
+    revisar: () => {
+      const r = { total: gente.length, sobreCoche: [], flotando: [], tipos: {}, estados: {}, posiciones: [] };
+      for (const v of gente) {
+        r.tipos[v.info.tipo] = (r.tipos[v.info.tipo] || 0) + 1; r.estados[v.estado] = (r.estados[v.estado] || 0) + 1;
+        const dentro = dentroIglesia(v.x, v.z), q_ = [Math.round(v.x * 10) / 10, Math.round(v.z * 10) / 10, v.estado];
+        r.posiciones.push(q_);
+        const sentado = /sentado|misa|levantandose/.test(v.estado);
+        if (!sentado && !libreDeCoches(v.x, v.z, 0.05)) {
+          // (cuánto se mete en la caja del coche, en metros: unos centímetros es rozarlo al pasar; más, atravesarlo)
+          let hondo = 0;
+          for (const k of window.foto?.coches?.coches || []) { const c = k.caja; if (!c) continue; const rx = v.x - c.x, rz = v.z - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx; hondo = Math.max(hondo, Math.min(c.L / 2 - Math.abs(lx), c.W / 2 - Math.abs(lz))); }
+          r.sobreCoche.push([...q_, Math.round(hondo * 100) / 100, v.rodeo ? 'rodeo' : v.pareja ? 'pareja' : '']);
+        }
+        if (!sentado && !dentro) { const y = suelo(v.x, v.z, v.y); if (Math.abs(y - v.y) > 0.25) r.flotando.push([...q_, Math.round((v.y - y) * 100) / 100]); }
+      }
+      return r;
+    },
+  };
+  // los saludos se mueven después de la animación
+  app.on('update', (dt) => { for (const v of gente) v.saludo?.mover(dt); });
+  return api;
+}

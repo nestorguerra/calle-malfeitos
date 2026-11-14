@@ -98,6 +98,14 @@ Cambios: las tres, a una pista mono a 32 kHz, sin el silencio de los extremos, i
 pausa de 4 s, fundidas al principio y al final y en AAC (`tools/canto_iglesia.py`). La pista que sale,
 `escenas/guarena/canto_iglesia.m4a`, tiene la misma licencia, CC BY-SA 3.0.
 
+## La gente del pueblo (Guareña)
+
+- Los doce vecinos que andan por el pueblo (`escenas/guarena/gente/`, `tools/blender/gente.py`): cuerpos, ropa, pelo y
+  calzado de MakeHuman / MPFB 2 (recursos CC0) — http://www.makehumancommunity.org/
+- Sus animaciones y los gestos nuevos de la chica (sentarse, bailar, arrodillarse, encender una vela): Universal Animation
+  Library de Quaternius (CC0).
+- Lo que dicen: frases genéricas, escritas aquí.
+
 ## Vecinos y animales (Calle Malfeitos)
 
 - Vecinos: avatares «Male_Adult_03» y «Gardener_Male_01» de Microsoft Rocketbox (MIT) — https://github.com/microsoft/Microsoft-Rocketbox;

@@ -75,7 +75,7 @@ if (q.get('foto388')) {
   const estilo = document.createElement('style');
   estilo.textContent = `#hud { display: none !important; }
     #carga { opacity: 0 !important; }
-    #ayuda, #creditos { display: none !important; }`;   /* (sin la ayuda de las teclas ni los créditos: que solo se vea a la chica; a petición, 11-11-2026. Los créditos, en la web de 388 Pueblos) */
+    #ayuda, #creditos, #reloj { display: none !important; }`;   /* (sin la ayuda de las teclas ni los créditos: que solo se vea a la chica; a petición, 11-11-2026. Los créditos, en la web de 388 Pueblos) */
   document.head.appendChild(estilo);
 
   let construir, entra = null;

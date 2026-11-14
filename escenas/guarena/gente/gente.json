@@ -1,0 +1,208 @@
+{
+ "4": {
+  "nombre": "hombre",
+  "sexo": 1,
+  "tipo": "adulto",
+  "alto": 1.745,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9000
+ },
+ "0": {
+  "nombre": "abuelo_gorra",
+  "sexo": 1,
+  "tipo": "mayor",
+  "alto": 1.705,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9623
+ },
+ "1": {
+  "nombre": "abuelo",
+  "sexo": 1,
+  "tipo": "mayor",
+  "alto": 1.736,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 7727
+ },
+ "2": {
+  "nombre": "abuela",
+  "sexo": 0,
+  "tipo": "mayor",
+  "alto": 1.513,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9013
+ },
+ "3": {
+  "nombre": "abuela2",
+  "sexo": 0,
+  "tipo": "mayor",
+  "alto": 1.483,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9016
+ },
+ "5": {
+  "nombre": "hombre2",
+  "sexo": 1,
+  "tipo": "adulto",
+  "alto": 1.769,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9001
+ },
+ "6": {
+  "nombre": "mujer",
+  "sexo": 0,
+  "tipo": "adulto",
+  "alto": 1.595,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9014
+ },
+ "7": {
+  "nombre": "mujer2",
+  "sexo": 0,
+  "tipo": "adulto",
+  "alto": 1.613,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9016
+ },
+ "8": {
+  "nombre": "joven",
+  "sexo": 1,
+  "tipo": "joven",
+  "alto": 1.766,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9002
+ },
+ "9": {
+  "nombre": "joven2",
+  "sexo": 0,
+  "tipo": "joven",
+  "alto": 1.623,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse"
+  ],
+  "caras": 9015
+ },
+ "10": {
+  "nombre": "nino",
+  "sexo": 1,
+  "tipo": "nino",
+  "alto": 1.38,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse",
+   "correr"
+  ],
+  "caras": 7727
+ },
+ "11": {
+  "nombre": "nina",
+  "sexo": 0,
+  "tipo": "nino",
+  "alto": 1.288,
+  "clips": [
+   "andar",
+   "pasear",
+   "quieto",
+   "charla",
+   "sentado",
+   "charla_sentado",
+   "sentarse",
+   "levantarse",
+   "correr"
+  ],
+  "caras": 9013
+ }
+}

@@ -18,6 +18,9 @@ import { ThirdPersonController } from 'playcanvas/scripts/esm/third-person-contr
 import { archivosDe, estadoGuardado, leerArchivo, montarPersonaje } from './personaje.js';
 import { montarSonido } from './sonido.js';
 import { montarCanto } from './canto.js';
+import { montarReloj } from './reloj.js';
+import { montarGente } from './gente.js';
+import { montarAcciones } from './acciones.js';
 import { montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
@@ -88,7 +91,9 @@ MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guaren
     canto: './escenas/guarena/canto_iglesia.m4a', planta: './escenas/guarena/iglesia_planta.json' }, // (y el canto gregoriano, que suena solo dentro: src/canto.js)
   partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
-  relieve: './escenas/guarena/relieve.json' }; // (las cuestas de verdad, al dibujar: src/relieve.js)
+  relieve: './escenas/guarena/relieve.json', // (las cuestas de verdad, al dibujar: src/relieve.js)
+  gente: './escenas/guarena/gente/', iglesiaSitios: './escenas/guarena/iglesia_sitios.json', // (los vecinos por la calle según la hora: src/gente.js)
+  reloj: true }; // (la hora del pueblo, que corre, y la luz según la hora: src/reloj.js; ?reloj=0, la luz fija de siempre)
 const modelo = MODELOS[q.get('escena')] ? { ...MODELOS[q.get('escena')], ...(q.get('modelo') ? { modelo: q.get('modelo') } : {}) }
   : (q.get('modelo') ? { modelo: q.get('modelo') } : null); // (?modelo= también cambia el .glb de una escena: para probar variantes)
 const nombre = foto ? 'foto' : (q.get('escena') || (q.get('url') ? 'url' : modelo ? 'modelo' : 'sunnyvale'));
@@ -927,13 +932,14 @@ function seguirSombra() {
 }
 
 // ---- La vida y el sonido de la calle (src/vida.js y src/sonido.js), con lo que dice vida.json; ?vida=0 los quita
-let sonido = null, canto = null;
+let sonido = null, canto = null, reloj = null;
 if (escena.vida && q.get('vida') !== '0') {
   const vida = (await vidaJson) || await (await fetch(escena.vida)).json();
   // (los coches aparcados en la plaza de la iglesia, copias de los del pueblo: antes de montarCoches, que los cambia de cerca)
   if (escena.aparcados && q.get('aparcados') !== '0') { try { aparcar({ app, vida, sitios: await (await fetch(escena.aparcados)).json() }); } catch (e) { console.warn('aparcados:', e); } }
   const materiales = [A.modelo, ...(escena.partes || []).map((_, i) => A['parte' + i])].filter(Boolean).flatMap((a) => a.resource.materials.map((m) => m.resource)).filter(Boolean);
   montarVida({ app, vida, materiales, q });
+  if (escena.reloj && q.get('reloj') !== '0') { try { reloj = montarReloj({ app, sol, rebote, post, escena, q, vida, hud: null, interior: escena.dentro?.planta || null }); } catch (e) { console.warn('reloj:', e); } }
   if (escena.vecinos) montarVecinos({ app, vida, carpeta: escena.vecinos, glb, chica: ctrl, q }).then((v) => { if (window.foto) window.foto.vecinos = v; });
   if (escena.sonidos) sonido = montarSonido({ app, camara, ctrl, muneco, carpeta: escena.sonidos, vida, suelo: () => rayo.ultimaY, viento, q, despues: trasListo });
   if (sonido && escena.dentro?.canto) canto = montarCanto({ app, sonido, ctrl, url: escena.dentro.canto, planta: escena.dentro.planta, q });
@@ -946,6 +952,12 @@ if (escena.vida && q.get('vida') !== '0') {
     try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
     catch (e) { console.warn('conducir:', e); }
   });
+  // la gente del pueblo, según la hora (src/gente.js; docs/gente.md): después de lo demás, que no retrase la carga
+  if (escena.gente) trasListo.then(() => montarGente({ app, vida, carpeta: escena.gente, glb, camara, chica: ctrl, reloj, q, movil, iglesia: escena.iglesiaSitios,
+    conducir: () => window.foto?.conducir?.estado?.() })).then((g) => { if (window.foto) window.foto.gente = g; }).catch((e) => console.warn('gente:', e))
+    // y lo que puede hacer la chica con ella y con el pueblo: sentarse, hablar, saludar, bailar, arrodillarse, encender una vela (src/acciones.js)
+    .then(() => (chica ? montarAcciones({ app, q, ctrl, muneco, tpc, carpeta: escena.chica, glb, pista, movil, vida, gente: window.foto?.gente, iglesia: escena.iglesiaSitios,
+      conducir: () => window.foto?.conducir?.estado?.(), reloj }) : null)).then((a) => { if (window.foto) window.foto.acciones = a; }).catch((e) => console.warn('acciones:', e));
 }
 
 // ---- Medida: los tiempos de cada fotograma, y una ruta andada sin teclado (para el Chrome sin ventana)
@@ -1056,7 +1068,7 @@ function resumen(ms) {
 }
 
 window.foto = {
-  app, ctrl, camara, tpc, sonido, canto, muneco, personaje: mi, cargado: true, carga_ms: Math.round(tCarga), tiempos, gpu: app.graphicsDevice.deviceType, escena: nombre, url: escena.splat,
+  app, ctrl, camara, tpc, sonido, canto, reloj, muneco, personaje: mi, cargado: true, carga_ms: Math.round(tCarga), tiempos, gpu: app.graphicsDevice.deviceType, escena: nombre, url: escena.splat,
   pos: () => { const p = ctrl.getPosition(); return [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100); },
   ir: (x, y, z) => { ctrl.rigidbody.teleport(x, y, z); },
   andando: (b) => { andando = b; }, // (para mover la cápsula desde fuera con la subida de escalones puesta)
@@ -1136,6 +1148,39 @@ if (q.get('compactar') !== '0') {
   for (const r of raiz.findComponents('render')) for (const mi of r.meshInstances) if (!vistas.has(mi.mesh)) { vistas.add(mi.mesh); ahorro += compactar(mi.mesh); }
   tiempos.compactado_mb = Math.round(ahorro / 1048576);
 }
+// la copia de JavaScript de cada textura, soltada en cuanto está en la gráfica (14-11-2026, docs/pueblo_vivo.md: con el
+// pueblo entero lleno, el móvil pasaba de 250 MB de JavaScript, y 119 eran estas copias). El motor solo las vuelve a leer
+// si se pierde la gráfica, y entonces la página se recarga (arriba, «devicelost»). Lo que compara texturas para no tenerlas
+// dos veces (el interior de la iglesia) usa la huella que se guarda antes de soltarla. ?soltartex=0 las deja
+const huellaTex = (x) => {
+  const b = x._levels?.[0]; if (!(b instanceof Uint8Array)) return x._huella || null;
+  let h = 2166136261; for (let i = 0; i < b.length; i += 997) { h ^= b[i]; h = Math.imul(h, 16777619); }
+  return `${x.width}|${x.height}|${x.format}|${b.length}|${h >>> 0}`;
+};
+if (q.get('soltartex') !== '0') {
+  // (solo las de los modelos cargados: las del motor que se reescriben cada fotograma —la de los huesos de cada cuerpo,
+  // por ejemplo— se quedaban congeladas y la chica y la gente dejaban de moverse)
+  const deModelos = () => {
+    const ts = new Set();
+    for (const a of app.assets.list()) {
+      if (a.type === 'container') for (const t of a.resource?.textures || []) { if (t.resource) ts.add(t.resource); }
+      else if (a.type === 'texture' && a.resource) ts.add(a.resource);
+    }
+    return ts;
+  };
+  const soltarTex = () => {
+    let liberado = 0;
+    for (const t of deModelos()) {
+      if (t._needsUpload || t._needsMipmapsUpload || !t._levels || t._cubemap || t._soltada) continue;
+      if (!t._levels.some((l) => ArrayBuffer.isView(l))) continue;
+      t._huella = huellaTex(t);
+      for (const l of t._levels) if (ArrayBuffer.isView(l)) liberado += l.byteLength;
+      t._levels = t._levels.map(() => null); t._soltada = true;
+    }
+    tiempos.texturas_soltadas_mb = (tiempos.texturas_soltadas_mb || 0) + Math.round(liberado / 1048576);
+  };
+  trasListo.then(() => { soltarTex(); setInterval(soltarTex, 4000); });
+}
 if (q.get('soltar') !== '0') {
   const quietas = new Set();
   for (const r of raiz.findComponents('render')) for (const mi of r.meshInstances) quietas.add(mi.mesh);
@@ -1167,9 +1212,10 @@ if (escena.dentro && q.get('dentro') !== '0') {
     // (las texturas que ya trae la iglesia de fuera —la sillería, su relieve, la madera de las puertas—, las mismas: el
     // interior usa aquellas y suelta las suyas; si no, en el móvil pasaba del tope de memoria de JavaScript)
     const lv = (x) => { const L = x?._levels?.[0]; return L instanceof Uint8Array ? L : null; };
-    const iguales = (a_, b_) => { const x = lv(a_), y = lv(b_); if (!x || !y || x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false; return true; };
+    // (las de fuera ya soltaron su copia: se comparan por la huella, que lleva el tamaño, el formato y un muestreo de los bytes)
+    const iguales = (a_, b_) => { const x = lv(a_), y = lv(b_); if (x && !y) return !!b_._huella && huellaTex(a_) === b_._huella; if (!x || !y || x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false; return true; };
     const propias = new Set(asset.resource.textures.map((t) => t.resource).filter(Boolean)), cambio = new Map();
-    const otras = [...app.graphicsDevice.textures].filter((t) => !propias.has(t) && lv(t));
+    const otras = [...app.graphicsDevice.textures].filter((t) => !propias.has(t) && (lv(t) || t._huella));
     for (const t of propias) { const o = otras.find((u) => u.width === t.width && u.height === t.height && u.format === t.format && iguales(t, u)); if (o) cambio.set(t, o); }
     asset.resource.materials.forEach(({ resource: mt }) => {
       if (!mt) return;
