@@ -85,6 +85,19 @@ las monta `tools/sonidos.py` (cortadas, igualadas, en bucle y en AAC). De Freeso
 - Bajados y sin usar por ahora: «50 birds are sleeping» y «Village, City Center #2» (Sardin), «Dog distant barking» de
   alberto59, «car6» de audiosophie y «Quiet and calm street» de xkeril (todos CC0).
 
+## Música (el interior de la iglesia de Guareña)
+
+El canto gregoriano que suena dentro de la iglesia de Santa María (y solo dentro: `src/canto.js`), de la **Schola
+Gregoriana**, en Wikimedia Commons, con licencia **CC BY-SA 3.0** (https://creativecommons.org/licenses/by-sa/3.0/):
+
+- «Antiphona et Magnificat» — https://commons.wikimedia.org/wiki/File:Schola_Gregoriana-Antiphona_et_Magnificat.ogg
+- «Ave Maria» — https://commons.wikimedia.org/wiki/File:Schola_Gregoriana-Ave_Maria.ogg
+- «Pater Noster» — https://commons.wikimedia.org/wiki/File:Schola_Gregoriana-Pater_Noster.ogg
+
+Cambios: las tres, a una pista mono a 32 kHz, sin el silencio de los extremos, igual de fuertes, una tras otra con una
+pausa de 4 s, fundidas al principio y al final y en AAC (`tools/canto_iglesia.py`). La pista que sale,
+`escenas/guarena/canto_iglesia.m4a`, tiene la misma licencia, CC BY-SA 3.0.
+
 ## Vecinos y animales (Calle Malfeitos)
 
 - Vecinos: avatares «Male_Adult_03» y «Gardener_Male_01» de Microsoft Rocketbox (MIT) — https://github.com/microsoft/Microsoft-Rocketbox;

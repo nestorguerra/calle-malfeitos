@@ -14,6 +14,10 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
   const suave = new DynamicsCompressorNode(ctx, { threshold: -24, knee: 18, ratio: 3, attack: 0.01, release: 0.4 });
   general.connect(suave); suave.connect(ctx.destination);
   const salida = ctx.createMediaStreamDestination(); general.connect(salida); // (para grabar el vídeo con sonido: tools/video.py)
+  // (lo de la calle —el fondo y todo lo que tiene sitio— va por su propio paso, con un filtro: dentro de la iglesia se oye
+  // más bajo y apagado, como tras los muros, mientras suena el canto: src/canto.js. Los pasos, no)
+  const calle = { gan: ctx.createGain(), filtro: new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: 0.5 }) };
+  calle.gan.connect(calle.filtro); calle.filtro.connect(general);
   const buf = {}, api = {};
   // (todos en un solo WAV, ambiente.wav, con su índice en ambiente.json: se descodifica una vez y cada sonido es un trozo)
   const paquete = (async () => {
@@ -38,7 +42,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
   const panner = (p, ref = 3, max = 80) => {
     const pn = new PannerNode(ctx, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: ref, maxDistance: max, rolloffFactor: 1.1 });
     pn.positionX.value = p[0]; pn.positionY.value = p[1]; pn.positionZ.value = p[2];
-    pn.connect(general); return pn;
+    pn.connect(calle.gan); return pn;
   };
   const sonar = (nombre, destino, { gan = 1, tono = 1, cuando = 0, bucle = false } = {}) => {
     const b = buf[nombre]; if (!b) return null;
@@ -54,7 +58,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
     // (10-11-2026, el usuario: «el sonido de andar más bajo, más normal, y los pájaros y el sonido ambiente más bajito en
     // general, más solo un ambiente». Todo lo de la calle, a la mitad o menos: fondo −4 dB; pájaros, radio, perro,
     // campanas y toldos, de −5 a −9 dB; los pasos, −7 dB. El motor de los coches, igual)
-    sonar('fondo', general, { gan: 0.25, bucle: true });
+    sonar('fondo', calle.gan, { gan: 0.25, bucle: true });
     // los gorriones, en un par de aleros del tramo que se anda (a 20–40 m y a 60–80 m del cruce con Nueva)
     for (const [z0, z1] of [[20, 40], [60, 80]]) for (const a of cerca(vida.aleros.map((x) => ({ p: x.a })), 1, z0, z1)) fijos.push(sonar('gorriones', panner(a.p, 4), { gan: 0.12, bucle: true }));
     // la radio: una ventana de la primera planta, hacia la mitad del tramo
@@ -161,6 +165,6 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
   const nombres = ['fondo', 'gorriones', 'radio', 'tela', 'ladrido', 'campanada', 'motor', ...[0, 1, 2].map((i) => 'arrullo' + i),
     ...[0, 1, 2, 3, 4, 5].map((i) => 'vencejos' + i), ...Object.entries(cuantos).flatMap(([k, n]) => [...Array(n).keys()].map((i) => 'paso_' + k + i))];
   const listo = Promise.all(nombres.map(cargar));
-  Object.assign(api, { ctx, general, salida, sonar, panner, buf, listo, despertar, azar, dados });
+  Object.assign(api, { ctx, general, calle, salida, sonar, panner, buf, listo, despertar, azar, dados });
   return api;
 }

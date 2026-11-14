@@ -6,7 +6,7 @@ import {
   AnimClipHandler, AnimComponentSystem, AnimStateGraphHandler, AppBase, AppOptions, Asset,
   CameraComponentSystem, CollisionComponentSystem, Color, ContainerHandler, Entity, FILLMODE_FILL_WINDOW,
   GSPLATDATA_COMPACT, GSplatComponentSystem, GSplatHandler, GamePads, Keyboard, LAYERID_SKYBOX, LightComponentSystem,
-  ADDRESS_CLAMP_TO_EDGE, BLEND_NONE, BLEND_NORMAL, CULLFACE_BACK, CULLFACE_NONE, EnvLighting, FOG_EXP, MeshInstance, Mouse, Quat, RESOLUTION_AUTO, RenderComponentSystem, RigidBodyComponentSystem, SHADOW_PCF1_32F, SHADOW_PCF3_32F,
+  ADDRESS_CLAMP_TO_EDGE, BLEND_ADDITIVEALPHA, BLEND_NONE, BLEND_NORMAL, CULLFACE_BACK, CULLFACE_NONE, EnvLighting, FOG_EXP, MeshInstance, Mouse, Quat, RESOLUTION_AUTO, RenderComponentSystem, RigidBodyComponentSystem, SHADOW_PCF1_32F, SHADOW_PCF3_32F,
   SEMANTIC_COLOR, SEMANTIC_NORMAL, SEMANTIC_TANGENT, ScriptComponentSystem, ScriptHandler, StandardMaterial, TYPE_FLOAT32, TYPE_INT8, TYPE_UINT16, TYPE_UINT8, Texture, VertexBuffer, VertexFormat, createMesh,
   TEXTURETYPE_RGBE, TEXTURETYPE_RGBP, TONEMAP_LINEAR, TextureHandler, TouchDevice, Vec3, WasmModule, createGraphicsDevice,
 } from 'playcanvas';
@@ -17,6 +17,7 @@ import { SpzParser } from 'playcanvas/scripts/esm/parsers/spz-parser.mjs';
 import { ThirdPersonController } from 'playcanvas/scripts/esm/third-person-controller.mjs';
 import { archivosDe, estadoGuardado, leerArchivo, montarPersonaje } from './personaje.js';
 import { montarSonido } from './sonido.js';
+import { montarCanto } from './canto.js';
 import { montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
@@ -83,7 +84,8 @@ const MODELOS = {
 MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guarena.glb', colision: './escenas/guarena/guarena_colision.glb',
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
   aparcados: './escenas/guarena/iglesia_coches.json', // (los coches aparcados en la plaza de la iglesia: src/aparcados.js)
-  dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260 }, // (el interior de la iglesia, aparte: se carga al acercarse)
+  dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260, // (el interior de la iglesia, aparte: se carga al acercarse)
+    canto: './escenas/guarena/canto_iglesia.m4a', planta: './escenas/guarena/iglesia_planta.json' }, // (y el canto gregoriano, que suena solo dentro: src/canto.js)
   partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json' }; // (las cuestas de verdad, al dibujar: src/relieve.js)
@@ -924,7 +926,7 @@ function seguirSombra() {
 }
 
 // ---- La vida y el sonido de la calle (src/vida.js y src/sonido.js), con lo que dice vida.json; ?vida=0 los quita
-let sonido = null;
+let sonido = null, canto = null;
 if (escena.vida && q.get('vida') !== '0') {
   const vida = (await vidaJson) || await (await fetch(escena.vida)).json();
   // (los coches aparcados en la plaza de la iglesia, copias de los del pueblo: antes de montarCoches, que los cambia de cerca)
@@ -933,6 +935,7 @@ if (escena.vida && q.get('vida') !== '0') {
   montarVida({ app, vida, materiales, q });
   if (escena.vecinos) montarVecinos({ app, vida, carpeta: escena.vecinos, glb, chica: ctrl, q }).then((v) => { if (window.foto) window.foto.vecinos = v; });
   if (escena.sonidos) sonido = montarSonido({ app, camara, ctrl, muneco, carpeta: escena.sonidos, vida, suelo: () => rayo.ultimaY, viento, q, despues: trasListo });
+  if (sonido && escena.dentro?.canto) canto = montarCanto({ app, sonido, ctrl, url: escena.dentro.canto, planta: escena.dentro.planta, q });
   const centro = await (await fetch(escena.vida.replace('vida.json', 'centro.json'))).json();
   trasListo.then(() => montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q })).then((a) => { if (window.foto) window.foto.animales = a; });
   montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; });
@@ -1051,7 +1054,7 @@ function resumen(ms) {
 }
 
 window.foto = {
-  app, ctrl, camara, tpc, sonido, muneco, personaje: mi, cargado: true, carga_ms: Math.round(tCarga), tiempos, gpu: app.graphicsDevice.deviceType, escena: nombre, url: escena.splat,
+  app, ctrl, camara, tpc, sonido, canto, muneco, personaje: mi, cargado: true, carga_ms: Math.round(tCarga), tiempos, gpu: app.graphicsDevice.deviceType, escena: nombre, url: escena.splat,
   pos: () => { const p = ctrl.getPosition(); return [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100); },
   ir: (x, y, z) => { ctrl.rigidbody.teleport(x, y, z); },
   andando: (b) => { andando = b; }, // (para mover la cápsula desde fuera con la subida de escalones puesta)
@@ -1147,7 +1150,15 @@ if (q.get('soltar') !== '0') {
 // horneada (tools/blender/iglesia_suciedad.py). ?dentro=0 no lo carga
 if (escena.dentro && q.get('dentro') !== '0') {
   const D = escena.dentro, radio = parseFloat(q.get('dentro') || D.radio), suelta = Math.max(D.suelta, radio + 60);
-  let ent = null, asset = null, cargando = false, n = 0;
+  let ent = null, asset = null, cargando = false, n = 0, llamas = [];
+  // (las llamas tiemblan: tres ritmos, uno por material, con dos ondas y un poco de azar; el resplandor, con ellas)
+  const temblor = [0, 0, 0];
+  app.on('update', (dt) => {
+    if (!ent || !llamas.length || q.get('temblor') === '0') return;
+    const t = performance.now() / 1000;
+    for (let k = 0; k < 3; k++) temblor[k] = 0.82 * temblor[k] + 0.18 * (Math.sin(t * (9.1 + k * 1.7) + k * 2.1) * 0.6 + Math.sin(t * (21.3 + k * 3.1) + k) * 0.4 + (Math.random() - 0.5) * 0.9);
+    for (const L of llamas) { L.mt.emissiveIntensity = L.base * (1 + (L.halo ? 0.22 : 0.16) * temblor[L.k]); L.mt.update(); }
+  });
   const montar = () => {
     if (!cargando || !asset) return; // (se alejó mientras bajaba)
     asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = 8; });
@@ -1165,9 +1176,20 @@ if (escena.dentro && q.get('dentro') !== '0') {
       if (q.get('suciedad') !== '0' && mt.aoMap && /_iglesia_interior$/.test(mt.name)) { mt.diffuseDetailMap = mt.aoMap; mt.diffuseDetailMapUv = mt.aoMapUv; mt.diffuseDetailMapChannel = 'aaa'; mt.diffuseDetailMode = 'mul'; }
       mt.update();
     });
+    // (más detalle dentro, 14-11-2026: el resplandor de las velas se suma a lo de detrás, sin escribir profundidad; los
+    // calcos del deterioro, mezclados y sin escribirla; ni ellos, ni las llamas, ni el encaje dan sombra. Las llamas y su
+    // resplandor van en tres materiales cada uno, que tiemblan por separado: abajo)
+    llamas = [];
+    asset.resource.materials.forEach(({ resource: mt }) => {
+      if (!mt) return;
+      const r = /^iglesia_(llama|resplandor)(?:_([abc]))?_iglesia_interior$/.exec(mt.name);
+      if (/^iglesia_resplandor_/.test(mt.name)) { mt.blendType = BLEND_ADDITIVEALPHA; mt.depthWrite = false; mt.cull = CULLFACE_NONE; mt.update(); }
+      if (/^iglesia_calcos_/.test(mt.name)) { mt.depthWrite = false; mt.update(); }
+      if (r) llamas.push({ mt, k: { a: 0, b: 1, c: 2 }[r[2] || 'a'], halo: r[1] === 'resplandor', base: mt.emissiveIntensity });
+    });
     const mod = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true }), vistas = new Set();
     for (const r of mod.findComponents('render')) for (const mi of r.meshInstances) {
-      if (sinSombra(mi.material?.name)) mi.castShadow = false;
+      if (sinSombra(mi.material?.name) || /^iglesia_(llama|resplandor|calcos|encaje)/.test(mi.material?.name || '')) mi.castShadow = false;
       if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
       if (q.get('compactar') !== '0') compactar(mi.mesh);
       // (sin la copia de JavaScript, pero con su tamaño: al soltar el interior, el motor lo lee al destruirlas, y con null
