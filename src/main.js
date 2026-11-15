@@ -494,7 +494,7 @@ for (const a of [A.colision, ...(modelo && escena.colisiones ? escena.colisiones
   const col = a.resource.instantiateRenderEntity();
   raiz.addChild(col);
   col.findComponents('render').forEach((render) => {
-    if (modelo && q.get('conducir') !== '0') { try { cajasCoches.push(...separarCajas(app, render)); } catch (e) { console.warn('cajas de los coches:', e); } }
+    if (modelo && q.get('conducir') !== '0') { try { cajasCoches.push(...separarCajas(app, render, a !== A.colision)); } catch (e) { console.warn('cajas de los coches:', e); } }
     render.entity.addComponent('rigidbody', { type: 'static', friction: 0.5, restitution: 0 });
     render.entity.addComponent('collision', { type: 'mesh', renderAsset: render.asset });
     render.enabled = false;
@@ -900,18 +900,53 @@ if (q.get('fluido') !== '0') {
 //   en unas décimas): se ve subir la escalera, no a saltos.
 const escalon = { a: new Vec3(), b: new Vec3(), d: new Vec3(), op: { filterCallback: (e) => e !== ctrl && e.name !== 'caja_coche' && !e.tags?.has('gente') } };
 let alivio = 0, alivioCam = 0; // (lo que el muñeco va por detrás de la cápsula, en altura; y lo que baja la cámara en este fotograma)
+// (lo que pide el jugador en este fotograma, con el teclado, el mando del móvil o el de consola: se mira antes de que el
+// controlador lo gaste. Con la chica parada contra un peldaño su velocidad es casi cero y el controlador dice que no anda:
+// antes eso apagaba la ayuda y se quedaba atascada hasta saltar —en la puerta sur, el paso del cancel y el presbiterio—,
+// 15-11-2026, el usuario: «que entre suave y normal»; tools/prueba_escaleras.py --teclado)
+const pide = { x: 0, z: 0, t: 0 };
+{ const upd = tpc._updateController;
+  if (upd) tpc._updateController = function (frame, dt) { try { const m = frame.deltas?.move?._value; if (m) { pide.x = m[0]; pide.z = m[2]; pide.t = (m[0] || m[2]) ? performance.now() : pide.t; } } catch (e) { /* */ } return upd.call(this, frame, dt); }; }
+// (y si pisa suelo: el controlador lo mira con un rayo bajo el centro, hasta 10 cm por debajo de los pies. Subiendo un
+// peldaño, la chica se quedaba montada en el canto —la parte de abajo de la cápsula es redonda y apoya en el borde—, con el
+// suelo de abajo a 13 cm bajo su centro: para el controlador iba en el aire, donde casi no acelera, y el roce la dejaba
+// quieta. Ahora, si el rayo del centro no da con nada, se prueban otros cuatro a 20 cm, que dan con el canto)
+{ const sysR = app.systems.rigidbody, rayo0 = sysR.raycastFirst.bind(sysR), ra = new Vec3(), rb = new Vec3(), sinElla = { filterCallback: (e) => e !== ctrl && !e.tags?.has('gente') };
+  const rayoSuelo = (a, b, op) => {
+    const h = rayo0(a, b, op); if (h || op) return h;
+    const c = ctrl.getPosition();   // (solo el del suelo: desde el centro de la cápsula, en vertical hacia abajo)
+    if (Math.abs(a.x - c.x) > 1e-4 || Math.abs(a.z - c.z) > 1e-4 || Math.abs(a.y - c.y) > 1e-4 || Math.abs(b.x - a.x) > 1e-4 || Math.abs(b.z - a.z) > 1e-4 || b.y >= a.y) return h;
+    for (const [ox, oz] of [[0.2, 0], [-0.2, 0], [0, 0.2], [0, -0.2]]) { const g = rayo0(ra.set(a.x + ox, a.y, a.z + oz), rb.set(b.x + ox, b.y, b.z + oz), sinElla); if (g) return g; }
+    return null;
+  };
+  const upd = tpc.update;
+  tpc.update = function (dt) { sysR.raycastFirst = rayoSuelo; try { return upd.call(this, dt); } finally { sysR.raycastFirst = rayo0; } };
+}
 app.on('update', (dt) => {
   if (alivio) { alivio *= Math.exp(-dt / 0.08); if (Math.abs(alivio) < 0.003) alivio = 0; muneco.setLocalPosition(0, -1 + alivio, 0); }
   alivioCam = alivio; // (la cámara ya está puesta con la cápsula de antes de lo que se suba ahora: baja lo de antes)
-  if ((!andando && !enRuta) || !ctrl.enabled) return;
+  const pidiendo = performance.now() - pide.t < 120;
+  if ((!andando && !enRuta && !pidiendo) || !ctrl.enabled) return;
   const v = ctrl.rigidbody.linearVelocity; if (v.y > 1.2) return; // (saltando)
   const p = ctrl.getPosition(), pies = p.y - 1, sys = app.systems.rigidbody, d = escalon.d;
-  // hacia dónde va: su velocidad; parada contra algo, hacia donde se pulsa (la cámara y las teclas) o hacia donde mira
+  // hacia dónde va: su velocidad; parada contra algo, hacia donde pide el jugador (la cámara y el mando) o hacia donde mira
   if (Math.hypot(v.x, v.z) > 0.25) d.set(v.x, 0, v.z).normalize();
   else {
-    const ax = tpc._state?.axis;
-    if (ax && (ax.x || ax.z)) { const y_ = tpc._yaw * Math.PI / 180, fx = -Math.sin(y_), fz = -Math.cos(y_); d.set(fx * ax.z + Math.cos(y_) * ax.x, 0, fz * ax.z - Math.sin(y_) * ax.x); if (d.lengthSq() < 1e-6) return; d.normalize(); }
+    if (pidiendo && (pide.x || pide.z)) { const y_ = tpc._yaw * Math.PI / 180, fx = -Math.sin(y_), fz = -Math.cos(y_); d.set(fx * pide.z + Math.cos(y_) * pide.x, 0, fz * pide.z - Math.sin(y_) * pide.x); if (d.lengthSq() < 1e-9) return; d.normalize(); }
     else { d.copy(muneco.forward); if (chica) d.mulScalar(-1); d.y = 0; if (d.lengthSq() < 1e-6) return; d.normalize(); }
+  }
+  // (cuesta arriba, en una rampa —las gradas del atrio son rampas en la colisión—, la física sola la frenaba a un tercio de
+  // su paso: el controlador empuja en horizontal y la gravedad tira para atrás. Si pide andar, va a la velocidad que pide
+  // —la que alcanza en llano con esa fuerza— y siguiendo la pendiente)
+  if (pidiendo && tpc._grounded) {
+    escalon.a.set(p.x, pies + 0.3, p.z); escalon.b.set(p.x, pies - 0.3, p.z);
+    const s = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
+    if (s && s.normal.y > 0.6 && s.normal.y < 0.985) {
+      const pend = -(s.normal.x * d.x + s.normal.z * d.z) / s.normal.y; // (lo que sube por metro, hacia donde va)
+      const alfa = 1 - Math.pow(tpc.velocityDampingGround, dt * 1000), quiere = Math.hypot(pide.x, pide.z) / Math.max(alfa, 1e-4);
+      const vh = Math.hypot(v.x, v.z);
+      if (pend > 0.05 && quiere > 0.3 && vh < quiere * 0.95) { const u = Math.min(quiere * 0.95, 3.2); ctrl.rigidbody.linearVelocity = new Vec3(d.x * u, u * pend, d.z * u); }
+    }
   }
   // el suelo de delante
   const ahora_ = performance.now(), libre = (x, z, y0) => { escalon.a.set(x, y0 + 0.05, z); escalon.b.set(x, y0 + 1.7, z); return !sys.raycastFirst(escalon.a, escalon.b, escalon.op); };
@@ -921,6 +956,13 @@ app.on('update', (dt) => {
     escalon.a.set(p.x + d.x * lejos, pies + 0.6, p.z + d.z * lejos); escalon.b.set(escalon.a.x, pies - 0.6, escalon.a.z);
     const h = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
     if (h && h.normal.y > 0.95) { dh = h.point.y - pies; if (dh > 0.03 && dh < 0.42 && libre(h.point.x, h.point.z, h.point.y)) { subir(dh, p.x, p.z); return; } break; } // (un peldaño es plano: las rampas, como las gradas del atrio, las sube la física sola)
+  }
+  // (montada en el canto y casi parada: el suelo bajo el centro, más de 4 cm por debajo de los pies, y el de delante a la
+  // altura de los pies: se adelanta lo que le falta para pisarlo, en vez de quedarse en el borde)
+  if (dh != null && Math.abs(dh) < 0.04 && Math.hypot(v.x, v.z) < 0.5) {
+    escalon.a.set(p.x, pies + 0.05, p.z); escalon.b.set(p.x, pies - 0.5, p.z);
+    const bajo = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
+    if (!bajo || pies - bajo.point.y > 0.04) { ctrl.rigidbody.teleport(p.x + d.x * 0.06, p.y + Math.max(0, dh) + 0.005, p.z + d.z * 0.06); ctrl.rigidbody.linearVelocity = new Vec3(v.x, 0, v.z); escalon.subio = ahora_; return; }
   }
   // (y si delante hay una tabica que no se ve desde arriba —un umbral estrecho, que el rayo de delante salta—: su borde)
   escalon.a.set(p.x, pies + 0.05, p.z); escalon.b.set(p.x + d.x * (RADIO + 0.2), pies + 0.05, p.z + d.z * (RADIO + 0.2));

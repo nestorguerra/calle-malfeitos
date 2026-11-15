@@ -22,7 +22,9 @@ import { Asset, BUFFER_STATIC, Entity, INDEXFORMAT_UINT32, IndexBuffer, Keyboard
 const RAD = 180 / Math.PI;
 
 // ---- las cajas de los coches: componentes de la malla con 8 vértices y 10 o 12 triángulos y tamaño de coche
-export function separarCajas(app, render) {
+// (soldar: los vértices en el mismo sitio cuentan como uno. En la colisión de la iglesia cada cara de una caja trae los
+// suyos —24 en vez de 8— y sus 17 coches no salían: no se podía subir a ellos, 15-11-2026. Solo para mallas pequeñas)
+export function separarCajas(app, render, soldar = false) {
   const cajas = [];
   const M = render.entity.getWorldTransform();
   for (const mi of render.meshInstances) {
@@ -34,12 +36,20 @@ export function separarCajas(app, render) {
     const base = m.primitive[0].base, cuenta = m.primitive[0].count;
     const par = new Int32Array(n); for (let i = 0; i < n; i++) par[i] = i;
     const raiz = (x) => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+    const unico = new Uint8Array(n).fill(1); // (los vértices que cuentan: sin soldar, todos; soldando, uno por sitio)
+    if (soldar) {
+      const sitio = new Map();
+      for (let i = 0; i < n; i++) {
+        const k = Math.round(P[i * s + o] * 500) + ',' + Math.round(P[i * s + o + 1] * 500) + ',' + Math.round(P[i * s + o + 2] * 500), j = sitio.get(k);
+        if (j === undefined) sitio.set(k, i); else { par[raiz(i)] = raiz(j); unico[i] = 0; }
+      }
+    }
     for (let t = base; t < base + cuenta; t += 3) { const a = raiz(I[t]); par[raiz(I[t + 1])] = a; par[raiz(I[t + 2])] = a; }
     const nv = new Int32Array(n), nt = new Int32Array(n);
-    for (let i = 0; i < n; i++) nv[raiz(i)]++;
+    for (let i = 0; i < n; i++) if (unico[i]) nv[raiz(i)]++;
     for (let t = base; t < base + cuenta; t += 3) nt[raiz(I[t])]++;
     const verts = new Map();
-    for (let i = 0; i < n; i++) { const r = raiz(i); if (nv[r] === 8 && (nt[r] === 10 || nt[r] === 12)) { let l = verts.get(r); if (!l) verts.set(r, l = []); l.push(i); } }
+    for (let i = 0; i < n; i++) { if (!unico[i]) continue; const r = raiz(i); if (nv[r] === 8 && (nt[r] === 10 || nt[r] === 12)) { let l = verts.get(r); if (!l) verts.set(r, l = []); l.push(i); } }
     const fuera = new Set(), p = new Vec3();
     for (const [r, l] of verts) {
       const Q = l.map((i) => M.transformPoint(new Vec3(P[i * s + o], P[i * s + o + 1], P[i * s + o + 2]), new Vec3()));
@@ -84,12 +94,29 @@ const par = (rpm) => { const u = Math.max(0, Math.min(6.99, rpm / 1000)), i = Ma
 
 export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, cajas, carpeta, glb, post, movil, sonido, compactar }) {
   if (q.get('conducir') === '0' || !coches?.coches?.length || !window.Ammo) return null;
+  const OJO = { alto: parseFloat(q.get('ojoalto') ?? '0.07'), adelante: parseFloat(q.get('ojoadelante') ?? '0.16'), picado: parseFloat(q.get('ojopicado') ?? '-3') };
   const Ammo = window.Ammo, mundo = app.systems.rigidbody.dynamicsWorld, sys = app.systems.rigidbody;
   // (cada coche, con su caja: la que tiene el centro a menos de 1,2 m del suyo)
   for (const k of coches.coches) {
     const p = k.lejos.getPosition(); let mejor = null, dm = 1.2;
     for (const c of cajas) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < dm && !c.k) { dm = d; mejor = c; } }
     if (mejor) { k.caja = mejor; mejor.k = k; }
+  }
+  // (y los que no tienen caja en ninguna malla —los 17 de la plaza de la iglesia, 15-11-2026; el usuario: «que pueda subir a
+  // cualquier coche del pueblo, esté donde esté»—, una a la medida de su modelo: con ella se puede subir y también chocan)
+  const MEDIDAS = { polo: [3.97, 1.68, 1.46], octavia2000: [4.51, 1.73, 1.43], octavia2005: [4.57, 1.77, 1.46], superb: [4.84, 1.82, 1.47] };
+  for (const k of coches.coches) {
+    if (k.caja) continue;
+    const p = k.lejos.getPosition(), ex = k.lejos.getWorldTransform().getX(new Vec3()); ex.y = 0; if (ex.lengthSq() < 1e-6) continue; ex.normalize();
+    const [L, W, H] = MEDIDAS[k.c.tipo] || MEDIDAS.octavia2005;
+    // (el suelo bajo el coche: su entidad está a la altura 0 y la malla lleva la suya; la física es plana, sin relieve)
+    const s = sys.raycastFirst(new Vec3(p.x, p.y + 3, p.z), new Vec3(p.x, p.y - 3, p.z), { filterCallback: (e_) => e_.name !== 'caja_coche' && e_.rigidbody?.type === 'static' });
+    const y0 = s ? s.point.y : p.y;
+    const e = new Entity('caja_coche'); e.setPosition(p.x, y0 + H / 2, p.z); e.setRotation(new Quat().setFromEulerAngles(0, Math.atan2(-ex.z, ex.x) * RAD, 0)); app.root.addChild(e);
+    e.addComponent('rigidbody', { type: 'static', friction: 0.5, restitution: 0 });
+    e.addComponent('collision', { type: 'box', halfExtents: new Vec3(L / 2, H / 2, W / 2) });
+    const c = { e, x: p.x, z: p.z, y0, y1: y0 + H, L, W, dx: ex.x, dz: ex.z, k, hecha: true };
+    cajas.push(c); k.caja = c;
   }
 
   // ---- los botones y los avisos (en el móvil, botones grandes a la derecha; en el ordenador, el aviso con su tecla)
@@ -337,7 +364,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   function cambiarVista() {
     if (est.modo !== 'conduciendo') return;
     est.vista = est.vista === 'fuera' ? 'dentro' : 'fuera'; est.mirar.yaw = est.mirar.pitch = 0;
-    if (est.vista === 'dentro') { est.near = camara.camera.nearClip; est.fov = camara.camera.fov; camara.camera.nearClip = 0.04; camara.camera.fov = parseFloat(q.get('fovcoche') || (innerWidth < innerHeight ? '82' : '62')); } // (en vertical, más abierta: con 62° de alto quedaban 30 de ancho)
+    if (est.vista === 'dentro') { est.near = camara.camera.nearClip; est.fov = camara.camera.fov; camara.camera.nearClip = 0.04; camara.camera.fov = parseFloat(q.get('fovcoche') || (innerWidth < innerHeight ? '82' : '58')); } // (en vertical, más abierta: con 62° de alto quedaban 30 de ancho)
     else { camara.camera.nearClip = est.near ?? 0.1; camara.camera.fov = est.fov ?? camara.camera.fov; }
     if (C?.interior) C.interior.enabled = true;
     ponerBotones();
@@ -477,7 +504,12 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     const T = chasis.getWorldTransform();
     let pos, rot;
     if (est.vista === 'dentro') {
-      const ojo = C.modelo?.datos?.ojo || [-0.05, 1.16, -0.37];
+      // (los ojos, 7 cm más altos y 16 más adelante que los del modelo, la mirada 3° hacia abajo y algo menos abierta
+      // —58° de alto en vez de 62—: sentada más erguida y más cerca del parabrisas, se ve más calle y menos coche; más
+      // altos, los parasoles tapaban media pantalla. 15-11-2026, el usuario: «dentro del coche se ve poco la carretera,
+      // haz que el personaje esté más levantado en el asiento… y un poco menos por dentro del coche». ?ojoalto=,
+      // ?ojoadelante= en metros y ?ojopicado= en grados, negativo hacia abajo; ?fovcoche=)
+      const o0 = C.modelo?.datos?.ojo || [-0.05, 1.16, -0.37], ojo = [o0[0] + OJO.adelante, o0[1] + OJO.alto, o0[2]];
       // (la cabeza, con el cuerpo: se va un poco hacia atrás al acelerar, hacia delante al frenar y hacia fuera en las
       // curvas, con algo de retraso; y un temblor muy leve que crece con la velocidad)
       const lv = chasis.rigidbody.linearVelocity, ac = est.acelPrev ? v2.sub2(lv, est.acelPrev).mulScalar(1 / Math.max(dt, 1e-3)) : v2.set(0, 0, 0);
@@ -488,7 +520,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       H.x += (-along * 0.006 - H.x) * kk; H.z += (-side * 0.005 - H.z) * kk;
       const tiembla = Math.min(1, Math.abs(est.v) / 15) * 0.0015 * Math.sin(est.cuadro * 1.7) * Math.sin(est.cuadro * 0.37);
       pos = T.transformPoint(v1.set(-ojo[2] - H.z, ojo[1] - cdm + tiembla, ojo[0] + H.x), new Vec3());
-      rot = new Quat().copy(chasis.getRotation()).mul(qt.setFromEulerAngles(0, 180 + Math.max(-140, Math.min(140, M.yaw)), 0)).mul(qt2.setFromEulerAngles(-Math.max(-50, Math.min(55, M.pitch)) * 0.8, 0, 0));
+      rot = new Quat().copy(chasis.getRotation()).mul(qt.setFromEulerAngles(0, 180 + Math.max(-140, Math.min(140, M.yaw)), 0)).mul(qt2.setFromEulerAngles(-Math.max(-50, Math.min(55, M.pitch)) * 0.8 + OJO.picado, 0, 0));
     } else {
       const yawCoche = Math.atan2(-f.x, -f.z) * RAD;
       if (est.camYaw === null) est.camYaw = yawCoche;

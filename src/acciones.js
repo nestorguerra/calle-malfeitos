@@ -5,7 +5,9 @@
 //   de la iglesia: se acerca, se sienta con su animación y se queda sentada hasta que se pulsa otra vez o se echa a
 //   andar, y entonces se levanta.
 // - Hablar con un vecino: se para, la mira y le dice algo que tiene que ver con la hora, el sitio y quién es (un mayor,
-//   un adulto, un joven, un niño; en la iglesia, en voz baja). Se puede seguir hablando o despedirse.
+//   un adulto, un joven, un niño; en la iglesia, en voz baja). Se puede seguir hablando o despedirse. En el ordenador,
+//   además, se le puede escribir lo que se quiera y contesta con la IA (src/ia.js): con su nombre, lo que estaba haciendo,
+//   y decide qué hace (acompañarla, irse, sentarse, saludar).
 // - Saludar con la mano (Q): quien la ve cerca le devuelve el saludo.
 // - Bailar (B), hasta que se echa a andar.
 // - En la iglesia: arrodillarse (dentro, E sin nada cerca) y encender una vela en el lampadario del Sagrado Corazón.
@@ -13,6 +15,7 @@
 // lado, E es subir al coche (src/conducir.js). Las animaciones nuevas: tools/blender/chica_gestos.py.
 import { Asset, Color, Entity, StandardMaterial, Vec3 } from 'playcanvas';
 import { brazoSaludo } from './gestos.js';
+import { montarIA, persona } from './ia.js';
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const elegir = (l) => l[Math.floor(Math.random() * l.length)];
@@ -58,7 +61,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   const CLIPS = { Sentarse: ['sentarse', false], Sentada: ['sentada', true], Levantarse: ['levantarse', false], Bailar: ['bailar', true], Arrodillada: ['arrodillada', true], Tocar: ['tocar', false] };
   await Promise.all(Object.entries(CLIPS).map(([estado, [f, bucle]]) => new Promise((ok) => {
     const a = new Asset('chica_' + f, 'container', { url: glb(carpeta + f + '.glb') });
-    a.once('load', () => { try { capa.assignAnimation(estado, pista(a), estado === 'Arrodillada' ? 0.0001 : 1, bucle); } catch (e) { console.warn('acciones:', f, e); } ok(); });
+    a.once('load', () => { try { capa.assignAnimation(estado, pista(a), 1, bucle); } catch (e) { console.warn('acciones:', f, e); } ok(); });
     a.once('error', () => ok()); app.assets.add(a); app.assets.load(a);
   })));
   const saludoChica = brazoSaludo(muneco);
@@ -87,6 +90,14 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   #charla button { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--linea, rgba(186, 198, 255, .16)); background: transparent; color: var(--cal, #eef0ec);
     font: 500 11px/1.2 var(--f-mono, ui-monospace, Menlo, monospace); letter-spacing: .09em; text-transform: uppercase; cursor: pointer; touch-action: manipulation; }
   #charla button.sigue { background: var(--sodio, #ffa94d); border-color: var(--sodio, #ffa94d); color: var(--tinta, #0c1122); }
+  #charla .tu { font: 400 13px/1.4 var(--f-mono, ui-monospace, Menlo, monospace); color: var(--niebla, #9ba4c8); margin: 0 0 6px; }
+  #charla .tu:empty, #charla .estado-ia:empty { display: none; }
+  #charla .escribe { display: flex; gap: 8px; margin: 0 0 10px; }
+  #charla .escribe[hidden] { display: none; }
+  #charla .escribe input { flex: 1; min-width: 0; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--linea, rgba(186, 198, 255, .16)); background: rgba(255, 255, 255, .06);
+    color: var(--cal, #eef0ec); font: 400 15px/1.3 var(--f-display, system-ui, sans-serif); outline: none; }
+  #charla .escribe input:focus { border-color: var(--sodio, #ffa94d); }
+  #charla .estado-ia { font: 500 11px/1.4 var(--f-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em; color: var(--niebla, #9ba4c8); margin: 0 0 10px; }
   @media (pointer: coarse) { .accion-boton { padding: 15px 22px; font-size: 14px; } #charla button { padding: 12px 18px; font-size: 13px; } }
   @media (max-width: 760px) { #charla { bottom: calc(110px + env(safe-area-inset-bottom, 0px)); } #charla .dice { font-size: 15px; } }`;
   document.head.appendChild(css);
@@ -94,11 +105,21 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   const bPrincipal = boton('accion-principal', ''), bSegunda = boton('accion-segunda', '');
   const bSaludar = boton('accion-saludar', 'Saludar'), bBailar = boton('accion-bailar', 'Bailar');
   const charla = document.createElement('div'); charla.id = 'charla'; charla.hidden = true;
-  charla.innerHTML = '<div class="quien"></div><p class="dice"></p><div class="botones"><button type="button" class="adios"></button><button type="button" class="sigue"></button></div>';
+  charla.innerHTML = '<div class="quien"></div><p class="tu"></p><p class="dice"></p><div class="estado-ia"></div><div class="escribe" hidden><input type="text" maxlength="200" autocomplete="off" aria-label="Lo que le dices"><button type="button" class="decir">Decir</button></div><div class="botones"><button type="button" class="adios"></button><button type="button" class="sigue"></button></div>';
   document.body.appendChild(charla);
   const [cQuien, cDice, cAdios, cSigue] = ['.quien', '.dice', '.adios', '.sigue'].map((s) => charla.querySelector(s));
+  const [cTu, cEstado, cEscribe, cDecir] = ['.tu', '.estado-ia', '.escribe', '.decir'].map((s) => charla.querySelector(s)), cEntrada = cEscribe.querySelector('input');
+  cEntrada.placeholder = movil ? 'Escríbele algo…' : 'Escríbele algo… (Intro)';
+  // (la IA de los vecinos: solo donde puede ir, src/ia.js; si no, las frases de siempre)
+  const ia = montarIA({ q, movil }); let iaSirve = false; ia.puede().then((s) => { iaSirve = s; });
   cAdios.textContent = movil ? 'Adiós' : 'Adiós (Esc)'; cSigue.textContent = movil ? 'Seguir hablando' : 'Seguir hablando (E)';
   for (const b of [bPrincipal, bSegunda, bSaludar, bBailar, charla]) for (const ev of ['pointerdown', 'pointerup', 'touchstart']) b.addEventListener(ev, (e) => e.stopPropagation());
+  // (lo que se escribe no llega al juego: ni andar, ni saltar, ni las teclas de las acciones)
+  cEntrada.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); decirIA(); } else if (e.key === 'Escape') cEntrada.blur(); });
+  // (al escribir, el ratón se suelta: las teclas solo mueven a la chica con el ratón capturado; las que se sueltan sí
+  // llegan al controlador, por si una se soltó escribiendo)
+  cEntrada.addEventListener('focus', () => { if (document.pointerLockElement) document.exitPointerLock(); });
+  cDecir.addEventListener('click', () => decirIA());
   if (q.get('desde') === '388' || q.get('acciones') === 'sin') for (const b of [bSaludar, bBailar]) b.remove();
 
   // ---- dónde está la chica y qué tiene cerca
@@ -106,14 +127,20 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   const yawChica = () => ((tpc._modelYaw - (tpc.modelYawOffset || 0)) * Math.PI) / 180;
   const iglesiaCentro = sitiosIglesia ? [sitiosIglesia.bancos.reduce((a, b) => a + b.asiento[0], 0) / sitiosIglesia.bancos.length, sitiosIglesia.bancos.reduce((a, b) => a + b.asiento[1], 0) / sitiosIglesia.bancos.length] : null;
   const enIglesia = (p) => iglesiaCentro && Math.hypot(p.x - iglesiaCentro[0], p.z - iglesiaCentro[1]) < 16 && Math.abs(p.y) < 1.5;
-  // los asientos: los bancos (dos o tres sitios cada uno), las sillas de las puertas y los bancos de la iglesia
+  // los asientos: los bancos (dos o tres sitios cada uno), las sillas de las puertas y los bancos de la iglesia. x, z: el
+  // sitio (para buscarlo y ver si está ocupado); rx, rz: donde va la chica (sus pies). En el clip de sentada la cadera
+  // queda 26 cm por detrás de los pies: con los pies en el asiento, la cadera caía detrás del respaldo y el muslo
+  // atravesaba la madera (15-11-2026, el usuario: «que las piernas no se corten, que queden por encima de la silla o el
+  // banco»). Ahora los pies van delante, y la cadera, a 6-10 cm por delante del centro del asiento hacia el respaldo
+  const CLIP_CADERA = 0.26;
+  const asiento = (tipo, x, y, z, mira, cadera) => ({ tipo, x, y, z, mira, rx: x + mira[0] * (CLIP_CADERA + cadera), rz: z + mira[1] * (CLIP_CADERA + cadera) });
   const asientos = [];
   for (const b of vida?.bancos || []) for (const u of b.largo > 2 ? [-0.65, 0, 0.65] : [-0.45, 0.45]) {
     const tx = -b.mira[1], tz = b.mira[0];
-    asientos.push({ tipo: 'banco', x: b.p[0] + tx * u - b.mira[0] * 0.12, y: b.p[1] - 0.46, z: b.p[2] + tz * u - b.mira[1] * 0.12, mira: b.mira });
+    asientos.push(asiento('banco', b.p[0] + tx * u, b.p[1] - 0.46, b.p[2] + tz * u, b.mira, -0.09));
   }
-  for (const s of vida?.sillas || []) asientos.push({ tipo: 'silla', x: s.p[0] - s.mira[0] * 0.04, y: s.p[1], z: s.p[2] - s.mira[1] * 0.04, mira: s.mira });
-  for (const s of sitiosIglesia?.bancos || []) asientos.push({ tipo: 'iglesia', x: s.asiento[0] - s.mira[0] * 0.12, y: s.asiento[2] - 0.46, z: s.asiento[1] - s.mira[1] * 0.12, mira: s.mira });
+  for (const s of vida?.sillas || []) asientos.push(asiento('silla', s.p[0], s.p[1], s.p[2], s.mira, -0.06));
+  for (const s of sitiosIglesia?.bancos || []) asientos.push(asiento('iglesia', s.asiento[0], s.asiento[2] - 0.46, s.asiento[1], s.mira, -0.10));
   const ocupado = (a) => gente?.lista?.some((v) => (v.estado === 'sentado' || v.estado === 'misa') && Math.hypot(v.x - a.x, v.z - a.z) < 0.4);
   // (al de delante de cada asiento; en la iglesia, entre los bancos no se cabe: al asiento mismo, desde el pasillo, hasta 2 m)
   const asientoCerca = (p) => {
@@ -149,9 +176,10 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     est.modo = 'sentandose'; est.asiento = a; est.t = 1.3; est.desde = p;
     // (de pie delante del asiento, de espaldas a él, y de ahí abajo mientras se sienta; en la iglesia, entre los bancos no
     // cabe: de lado desde el pasillo)
-    const delante = a.tipo === 'iglesia' ? p : { x: a.x + a.mira[0] * 0.42, y: a.y, z: a.z + a.mira[1] * 0.42 };
+    const raiz = { x: a.rx, y: a.y, z: a.rz };
+    const delante = a.tipo === 'iglesia' ? p : { x: a.rx + a.mira[0] * 0.3, y: a.y, z: a.rz + a.mira[1] * 0.3 };
     fijar(p.x, p.y, p.z, a.mira); deslizar(p, delante, a.tipo === 'iglesia' ? 0.01 : 0.25);
-    setTimeout(() => { if (est.modo === 'sentandose') { deslizar(delante, a, 0.9); capa.transition('Sentarse', 0.25); } }, 250);
+    setTimeout(() => { if (est.modo === 'sentandose') { deslizar(delante, raiz, 0.9); capa.transition('Sentarse', 0.25); } }, 250);
     est.t = 1.55; ponerBotones();
   }
   function levantarse() {
@@ -159,12 +187,16 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     est.modo = 'levantandose'; est.t = 1.0; capa.transition('Levantarse', 0.2);
     // (de vuelta a donde estaba de pie: es sitio libre; delante de un banco de la iglesia está el de delante)
     const a = est.asiento; est.vuelta = a.tipo === 'iglesia' || !est.desde ? (est.desde || { x: a.x + a.mira[0] * 0.45, y: a.y, z: a.z + a.mira[1] * 0.45 }) : { x: a.x + a.mira[0] * 0.45, y: a.y, z: a.z + a.mira[1] * 0.45 };
-    deslizar(a, est.vuelta, 0.9); ponerBotones();
+    deslizar({ x: a.rx, y: a.y, z: a.rz }, est.vuelta, 0.9); ponerBotones();
   }
+  // de rodillas con las dos y las manos juntas (tools/blender/chica_gestos.py, rezar). Entre los bancos de la iglesia, en el
+  // reclinatorio del banco que tiene más cerca (a 22 cm del suelo, de cara al altar); si no, donde está
   function arrodillarse() {
-    const p = pie(), m = sitiosIglesia?.altar || [Math.sin(yawChica()), Math.cos(yawChica())];
-    est.modo = 'rodillas'; est.donde = p; fijar(p.x, p.y, p.z, m); capa.transition('Arrodillada', 0.6);
-    setTimeout(() => { if (est.modo === 'rodillas') capa.activeStateCurrentTime = 1.0; }, 30);
+    const p = pie(); let m = sitiosIglesia?.altar || [Math.sin(yawChica()), Math.cos(yawChica())], a = p;
+    let rec = null, dr = 0.9;
+    for (const b of sitiosIglesia?.bancos || []) { const d = Math.hypot(b.rodillas[0] - p.x, b.rodillas[1] - p.z); if (d < dr && Math.abs(p.y) < 0.5) { dr = d; rec = b; } }
+    if (rec) { m = rec.mira; a = { x: rec.rodillas[0] - m[0] * 0.05, y: p.y + rec.rodillas[2], z: rec.rodillas[1] - m[1] * 0.05 }; }
+    est.modo = 'rodillas'; est.donde = p; fijar(p.x, p.y, p.z, m); if (rec) deslizar(p, a, 0.45); capa.transition('Arrodillada', 0.6);
     ponerBotones();
   }
   function encenderVela() {
@@ -192,7 +224,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   function aPie() {
     const antes = est.modo; est.modo = 'pie'; est.asiento = null; mover = null;
     if (antes === 'rodillas' || antes === 'bailando' || antes === 'vela') capa.transition('Quieto', 0.35);
-    if (antes !== 'bailando') { const p = pie(); soltar(p.x, p.y, p.z); }
+    if (antes !== 'bailando') { const p = antes === 'rodillas' && est.donde ? est.donde : pie(); soltar(p.x, p.y, p.z); } // (del reclinatorio, a donde estaba de pie)
     ponerBotones();
   }
   function saludar() {
@@ -210,7 +242,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     const p = pie(), h = reloj ? reloj.hora : 12, dia = reloj ? ((reloj.diaSemana + reloj.dia) % 7 + 7) % 7 : new Date().getDay();
     gente.hablar(v, p.x, p.z);
     if (Math.random() < 0.5) gente.saludar(v);
-    est.modo = 'hablando'; est.habla = v; est.linea = 0;
+    est.modo = 'hablando'; est.habla = v; est.linea = 0; est.iaUsada = false; est.iaHace = null;
     const sitio = enIglesia(p) ? 'iglesia' : vida?.plazas?.some((pl) => pl.p.some((q_) => Math.hypot(q_[0] - p.x, q_[1] - p.z) < 15)) ? 'plaza' : 'calle';
     est.lineas = frases({ tipo: v.info.tipo, sexo: v.info.sexo, h, dia, sitio, misa: gente.misa(), jugando: v.estado === 'jugar', sentado: v.estado === 'sentado' || v.estado === 'misa' });
     fijar(p.x, p.y, p.z, [v.x - p.x, v.z - p.z]);
@@ -221,19 +253,80 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
       const mx = (p.x + v.x) / 2, mz = (p.z + v.z) / 2, y = p.y + 1.5, sitio = (sg) => { const ox = uz * sg * 0.8 + ux * 0.55, oz = -ux * sg * 0.8 + uz * 0.55, h = app.systems.rigidbody.raycastFirst(new Vec3(mx, y, mz), new Vec3(mx - ox * 3.5, y, mz - oz * 3.5)); return [h ? Math.hypot(h.point.x - mx, h.point.z - mz) : 9, ox, oz]; };
       const cerca_ = (uz * fx - ux * fz) >= 0 ? 1 : -1, [d1, ox1, oz1] = sitio(cerca_), [d2, ox2, oz2] = sitio(-cerca_);
       const [ox, oz] = d1 >= 2.5 || d1 >= d2 ? [ox1, oz1] : [ox2, oz2]; est.camYaw = Math.atan2(-ox, -oz) * 180 / Math.PI; }
-    const quien = { mayor: v.info.sexo ? 'Un vecino mayor' : 'Una vecina mayor', adulto: v.info.sexo ? 'Un vecino' : 'Una vecina', joven: v.info.sexo ? 'Un chico del pueblo' : 'Una chica del pueblo', nino: v.info.sexo ? 'Un niño' : 'Una niña' }[v.info.tipo] || 'Un vecino';
-    cQuien.textContent = quien; decir();
+    const quien = { mayor: v.info.sexo ? 'vecino' : 'vecina', adulto: v.info.sexo ? 'vecino' : 'vecina', joven: v.info.sexo ? 'chico del pueblo' : 'chica del pueblo', nino: v.info.sexo ? 'niño' : 'niña' }[v.info.tipo] || 'vecino';
+    const pe = persona(v); cQuien.textContent = `${pe.nombre} · ${quien}, ${pe.edad} años`; cTu.textContent = ''; cEstado.textContent = '';
+    est.contexto = { hora: h, dia, donde: dondeTexto(p, sitio), lugares: lugaresTexto(p, sitio) };
+    decir();
+    cEscribe.hidden = !iaSirve; cEntrada.value = '';
     charla.hidden = false; ponerBotones();
+    // (con la IA ya despierta, el saludo también es suyo: lo de siempre se queda si tarda o falla)
+    if (iaSirve && ia.estado().listo) { est.iaTurno = (est.iaTurno || 0) + 1; preguntar('(La chica se acerca y te saluda.)', true); }
+  }
+  // dónde están, para el vecino: dentro de la iglesia, en una plaza o en la calle más cercana
+  function dondeTexto(p, sitio) {
+    if (sitio === 'iglesia') return 'dentro de la iglesia de Santa María';
+    let mejor = null, dm = 40;
+    for (const pl of vida?.plazas || []) for (const q_ of pl.p || []) { const d = Math.hypot(q_[0] - p.x, q_[1] - p.z); if (d < dm) { dm = d; mejor = pl.nombre; } }
+    if (mejor && dm < 15) return `en la ${mejor.replace(/ \(\d+\)$/, '').replace(/^Plaza/, 'plaza')}`;
+    for (const c of vida?.calles || []) for (const q_ of c.p || []) { const d = Math.hypot(q_[0] - p.x, q_[1] - p.z); if (d < dm) { dm = d; mejor = c.nombre; } }
+    return mejor ? `en la ${mejor.replace(/^Calle/, 'calle').replace(/^Avenida/, 'avenida').replace(/^Plaza/, 'plaza')}` : 'en una calle del pueblo';
+  }
+  // lo lejos que están la iglesia y la plaza de España, y hacia dónde (medido en el juego: el vecino no se lo inventa)
+  const RUMBOS = ['el norte', 'el noreste', 'el este', 'el sureste', 'el sur', 'el suroeste', 'el oeste', 'el noroeste'];
+  const haciaTexto = (p, x, z) => { const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), r = (Math.atan2(dx, -dz) * 180 / Math.PI + 360) % 360; return { d, txt: `a unos ${d < 100 ? Math.round(d / 10) * 10 : Math.round(d / 50) * 50} metros de aquí, hacia ${RUMBOS[Math.round(r / 45) % 8]}` }; };
+  function lugaresTexto(p, sitio) {
+    const l = [];
+    if (sitio === 'iglesia') l.push('Estáis dentro de la iglesia de Santa María.');
+    else if (iglesiaCentro) { const h = haciaTexto(p, iglesiaCentro[0], iglesiaCentro[1]); l.push(h.d < 40 ? 'La iglesia de Santa María está aquí al lado.' : `La iglesia de Santa María está ${h.txt}.`); }
+    const pe = (vida?.plazas || []).find((pl) => /espa[ñn]a/i.test(pl.nombre || ''));
+    if (pe?.p?.length) { const c = pe.p.reduce((a, q_) => [a[0] + q_[0] / pe.p.length, a[1] + q_[1] / pe.p.length], [0, 0]), h = haciaTexto(p, c[0], c[1]); l.push(h.d < 40 ? 'La plaza de España está aquí mismo.' : `La plaza de España está ${h.txt}.`); }
+    return l.join(' ');
+  }
+  // lo que se le escribe: a la IA (la primera vez, despertándola con su aviso), y lo que contesta, mientras lo escribe
+  function decirIA() {
+    const texto = cEntrada.value.trim(); if (!texto || est.modo !== 'hablando') return;
+    cEntrada.value = ''; cTu.textContent = '—' + texto; preguntar(texto, false);
+  }
+  async function preguntar(texto, saludo) {
+    const v = est.habla, turno = est.iaTurno = (est.iaTurno || 0) + 1; if (!v) return;
+    const viejo = cDice.textContent;
+    if (!saludo) cDice.textContent = '…';
+    if (!ia.estado().listo) {
+      cEstado.textContent = 'Despertando a los vecinos… (la primera vez se bajan 880 MB)';
+      try { await ia.preparar((pr) => { if (est.iaTurno === turno) cEstado.textContent = `Despertando a los vecinos… ${Math.round(pr * 100)} % (la primera vez se bajan 880 MB)`; }); }
+      catch (e) { if (est.iaTurno === turno) { cEstado.textContent = 'No se ha podido despertar la IA en este navegador.'; cDice.textContent = viejo; } return; }
+    }
+    if (est.habla !== v || est.iaTurno !== turno) return;
+    cEstado.textContent = ''; const t0 = performance.now();
+    try {
+      const r = await ia.responder({ v, contexto: est.contexto, mensaje: texto, alEscribir: (s) => { if (est.habla === v && est.iaTurno === turno) cDice.textContent = s; } });
+      if (est.habla !== v || est.iaTurno !== turno) return;
+      cDice.textContent = r.dice; cSigue.hidden = true; est.iaUsada = true; est.ultimaIA = { dice: r.dice, hace: r.hace, propuesto: r.propuesto, ms: Math.round(performance.now() - t0) };
+      hacerIA(v, r.hace);
+    } catch (e) { console.warn('ia:', e); if (est.habla === v && est.iaTurno === turno) { cDice.textContent = viejo; cEstado.textContent = 'El vecino se ha quedado pensando… prueba otra vez.'; } }
+  }
+  // lo que decide hacer: saludar ya; acompañarla, irse o sentarse, cuando ella lo ha leído (se acaba la charla)
+  function hacerIA(v, hace) {
+    if (hace === 'saludar') { gente.saludar(v); return; }
+    if (hace === 'nada') return;
+    if (hace === 'despedirse') { est.iaHace = hace; setTimeout(() => { if (est.habla === v && est.iaHace === hace) despedirse(); }, Math.min(4000, 1200 + cDice.textContent.length * 35)); return; }
+    est.iaHace = hace;
+    setTimeout(() => {
+      if (est.habla !== v || est.iaHace !== hace) return;
+      terminar(() => { if (hace === 'acompanar') gente.acompañar(v, 90); else if (hace === 'irse') gente.irse(v); else if (hace === 'sentarse') { if (!gente.sentarse(v)) gente.soltar(v); } });
+    }, Math.min(4500, 1400 + cDice.textContent.length * 35));
   }
   function decir() {
     cDice.textContent = est.lineas[est.linea];
     const ultima = est.linea >= est.lineas.length - 1;
     cSigue.hidden = ultima; cAdios.textContent = (ultima ? 'Adiós' : 'Adiós') + (movil ? '' : ' (Esc)');
   }
-  function seguir() { if (est.modo !== 'hablando') return; if (est.linea < est.lineas.length - 1) { est.linea++; decir(); if (est.linea === est.lineas.length - 1 && Math.random() < 0.6) gente.saludar(est.habla); } else despedirse(); }
-  function despedirse() {
+  function seguir() { if (est.modo !== 'hablando') return; if (est.iaUsada && !cEscribe.hidden) { cEntrada.focus(); return; } if (est.linea < est.lineas.length - 1) { est.linea++; decir(); if (est.linea === est.lineas.length - 1 && Math.random() < 0.6) gente.saludar(est.habla); } else despedirse(); }
+  function despedirse() { terminar(() => gente.soltar(est.habla)); }
+  function terminar(vecino) {
     if (est.modo !== 'hablando') return;
-    gente.soltar(est.habla); est.habla = null; est.camYaw = null; charla.hidden = true; est.modo = 'pie';
+    vecino(); est.habla = null; est.camYaw = null; est.iaHace = null; est.iaTurno = (est.iaTurno || 0) + 1; charla.hidden = true; est.modo = 'pie';
+    if (document.activeElement === cEntrada) cEntrada.blur();
     const p = pie(); soltar(p.x, p.y, p.z); ponerBotones();
   }
 
@@ -275,6 +368,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   addEventListener('keydown', (e) => {
     if (e.repeat || e.target?.tagName === 'INPUT' || !ctrl.enabled) return;
     if (est.modo === 'hablando') {
+      if (e.code === 'Enter' && iaSirve && !cEscribe.hidden) { e.preventDefault(); cEntrada.focus(); return; }
       if (e.code === 'KeyE' || e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); seguir(); }
       else if (e.code === 'Escape' || /^Key[WASD]$|^Arrow/.test(e.code)) despedirse();
       return;
@@ -316,7 +410,8 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     if (est.modo === 'hablando' && est.habla && Math.hypot(est.habla.x - pie().x, est.habla.z - pie().z) > 4) despedirse();
   });
   ponerBotones();
-  return { estado: () => ({ modo: est.modo, accion: accion?.texto || null, segunda: segunda?.texto || null, velas: est.velas.length, dice: est.modo === 'hablando' ? cDice.textContent : null }),
+  return { estado: () => ({ modo: est.modo, accion: accion?.texto || null, segunda: segunda?.texto || null, velas: est.velas.length, dice: est.modo === 'hablando' ? cDice.textContent : null, quien: est.modo === 'hablando' ? cQuien.textContent : null, ia: est.ultimaIA || null, iaAviso: cEstado.textContent || null }),
     sentarse: (i) => sentarse(i != null ? asientos[i] : asientoCerca(pie())), levantarse, saludar, bailar, aPie, arrodillarse, encenderVela, hablar, seguir, despedirse,
-    asientos: () => asientos.length, asientoCerca: () => asientoCerca(pie()), usar: () => accion?.f() };
+    asientos: () => asientos.length, asientoCerca: () => asientoCerca(pie()), usar: () => accion?.f(),
+    ia, iaSirve: () => iaSirve, escribir: (texto) => { cEntrada.value = texto; decirIA(); } };
 }

@@ -102,9 +102,15 @@ pausa de 4 s, fundidas al principio y al final y en AAC (`tools/canto_iglesia.py
 
 - Los doce vecinos que andan por el pueblo (`escenas/guarena/gente/`, `tools/blender/gente.py`): cuerpos, ropa, pelo y
   calzado de MakeHuman / MPFB 2 (recursos CC0) — http://www.makehumancommunity.org/
-- Sus animaciones y los gestos nuevos de la chica (sentarse, bailar, arrodillarse, encender una vela): Universal Animation
-  Library de Quaternius (CC0).
-- Lo que dicen: frases genéricas, escritas aquí.
+- Sus animaciones y los gestos nuevos de la chica (sentarse, bailar, encender una vela): Universal Animation Library de
+  Quaternius (CC0). La chica de rodillas rezando es una postura hecha aquí (`tools/blender/chica_gestos.py`).
+- Lo que dicen: frases genéricas, escritas aquí; y, en el ordenador, lo que contestan cuando se les escribe, de la IA
+  (`src/ia.js`):
+  - el modelo Qwen2.5-1.5B-Instruct (Qwen, Alibaba Cloud), con licencia Apache 2.0, en la versión cuantizada para el
+    navegador de MLC (`Qwen2.5-1.5B-Instruct-q4f16_1-MLC`, https://huggingface.co/mlc-ai). El navegador del jugador lo
+    baja de Hugging Face la primera vez (880 MB);
+  - WebLLM (MLC AI, Apache 2.0) — https://github.com/mlc-ai/web-llm, de jsDelivr, versión 0.2.87.
+  Todo corre en el navegador del jugador: lo que se escribe no se manda a ningún sitio.
 
 ## Vecinos y animales (Calle Malfeitos)
 

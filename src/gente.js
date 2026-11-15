@@ -486,6 +486,16 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   function actualizar(v, dt, tt, p, conduce) {
     if (v.ocupado) { girarHacia(v, v.mira, dt, 5); v.raiz.setPosition(v.x, v.y, v.z); v.raiz.setEulerAngles(0, v.yaw * 180 / Math.PI, 0); return; }
     const dChica = Math.hypot(v.x - p.x, v.z - p.z);
+    // acompañar a la chica (lo decide el vecino hablando con ella, src/ia.js): a 1,3 m detrás de ella mientras dure;
+    // cerca, quieto y mirándola; si conduce o se acaba el rato, se va a lo suyo
+    if (v.estado === 'seguir' || v.fin?.tipo === 'seguir') {
+      if (tt > (v.seguirHasta || 0) || conduce) { v.fin = null; v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto', 0.3); mover(v, dt); return; }
+      const ux = (p.x - v.x) / (dChica || 1), uz = (p.z - v.z) / (dChica || 1);
+      if (v.estado === 'seguir') {
+        if (dChica > 2.2) { v.fin = { x: p.x - ux * 1.3, z: p.z - uz * 1.3, tipo: 'seguir' }; v.puntos = null; v.ruta = null; v.t = 0; v.estado = 'andar_directo'; poner(v, v.clipAndar, 0.25); }
+        else { girarHacia(v, [ux, uz], dt, 4); mirarChica(v, p, dChica, dt); mover(v, dt); return; }
+      } else { v.fin.x = p.x - ux * 1.3; v.fin.z = p.z - uz * 1.3; }
+    }
     if (v.estado === 'andar' || v.estado === 'andar_directo') {
       // el punto al que va: el de la acera del siguiente punto de su calle o, al final, el sitio
       let tx, tz;
@@ -580,6 +590,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       v.t -= dt; if (v.t <= 0) {
         // (de pie: un paso hacia delante, que sentado estaba más atrás)
         v.x += Math.sin(v.yaw) * 0.35; v.z += Math.cos(v.yaw) * 0.35; v.y = suelo(v.x, v.z, v.y);
+        if (v.luego === 'seguir') { v.luego = null; v.estado = 'seguir'; poner(v, 'quieto', 0.3); mover(v, dt); return; }
         const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto'); }
       }
       mover(v, dt); return;
@@ -597,6 +608,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   }
   function llegar(v, tt) {
     const f = v.fin || {}; v.ruta = null;
+    if (f.tipo === 'seguir') { v.estado = 'seguir'; poner(v, 'quieto', 0.3); return; }
     if (f.tipo === 'fuera_misa') {
       // fuera de la iglesia: cada uno a su casa
       const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto'); }
@@ -673,6 +685,31 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     },
     soltar: (v) => { if (!v) return; v.ocupado = false; v.mira = null; if (v.antes) poner(v, v.antes.clip === 'charla' ? 'quieto' : v.antes.clip, 0.4); },
     saludar: (v) => v.saludo?.empezar(),
+    // lo que puede decidir un vecino al hablar con la chica (src/ia.js): acompañarla un rato, irse a lo suyo o sentarse
+    acompañar: (v, segundos = 90) => {
+      if (!v) return; v.ocupado = false; v.mira = null; v.seguirHasta = performance.now() / 1000 + segundos;
+      if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); v.grupo = null; }
+      if (v.estado === 'sentado' || v.estado === 'misa') { v.sitio && (v.sitio.quien = null); v.sitio = null; poner(v, 'levantarse', 0.2); v.estado = 'levantandose'; v.t = 1.1; v.luego = 'seguir'; }
+      else { v.estado = 'seguir'; v.fin = null; poner(v, 'quieto', 0.3); }
+    },
+    irse: (v) => {
+      if (!v) return; v.ocupado = false; v.mira = null; v.seguirHasta = 0;
+      if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); v.grupo = null; }
+      if (v.estado === 'sentado' || v.estado === 'misa') { v.sitio && (v.sitio.quien = null); v.sitio = null; poner(v, 'levantarse', 0.2); v.estado = 'levantandose'; v.t = 1.1; return; }
+      const d = destino(v); if (d && irA(v, d[0], d[1], d[2])) return;
+      // (sin calle a mano —en medio de una plaza—: se aleja andando, de espaldas a la chica, y luego sigue a lo suyo)
+      const p = yo(), dx = v.x - p.x, dz = v.z - p.z, l = Math.hypot(dx, dz) || 1;
+      v.fin = { x: v.x + dx / l * 14, z: v.z + dz / l * 14, tipo: 'paseo' }; v.puntos = null; v.ruta = null; v.t = 0; v.estado = 'andar_directo'; poner(v, v.clipAndar, 0.25);
+    },
+    sentarse: (v) => {
+      if (!v || v.estado === 'sentado' || v.estado === 'misa') return false;
+      const b = bancosLibres.filter((b) => Math.hypot(b.p[0] - v.x, b.p[2] - v.z) < 25 && b.sitios.some((s) => !s.quien)).sort((a, c) => Math.hypot(a.p[0] - v.x, a.p[2] - v.z) - Math.hypot(c.p[0] - v.x, c.p[2] - v.z))[0];
+      if (!b) return false;
+      v.ocupado = false; v.mira = null; if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); v.grupo = null; }
+      const s = b.sitios.find((s) => !s.quien), tx = -b.mira[1], tz = b.mira[0];
+      v.fin = { x: b.p[0] + tx * s.u + b.mira[0] * 0.45, z: b.p[2] + tz * s.u + b.mira[1] * 0.45, tipo: 'banco', banco: b, sitio: s }; s.quien = v; v.sitio = s;
+      v.puntos = null; v.ruta = null; v.t = 0; v.estado = 'andar_directo'; poner(v, v.clipAndar, 0.25); return true;
+    },
     nacer: (tipo, x, z) => { const l = deTipo[tipo].filter((i) => ASSETS[i]); const v = nacer(elegir(l), x, z); v.estado = 'quieto'; poner(v, 'quieto'); return v; },
     destino, carril, nodoCerca, camino: caminoEntre, enLaCalle, misa: enMisa, nodos: n,
     // (para las pruebas, tools/prueba_gente.py) empezar de cero con la hora y el sitio de ahora, como al cargar
