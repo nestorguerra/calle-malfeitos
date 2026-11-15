@@ -58,16 +58,37 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
     // (10-11-2026, el usuario: «el sonido de andar más bajo, más normal, y los pájaros y el sonido ambiente más bajito en
     // general, más solo un ambiente». Todo lo de la calle, a la mitad o menos: fondo −4 dB; pájaros, radio, perro,
     // campanas y toldos, de −5 a −9 dB; los pasos, −7 dB. El motor de los coches, igual)
-    sonar('fondo', calle.gan, { gan: 0.25, bucle: true });
-    // los gorriones, en un par de aleros del tramo que se anda (a 20–40 m y a 60–80 m del cruce con Nueva)
-    for (const [z0, z1] of [[20, 40], [60, 80]]) for (const a of cerca(vida.aleros.map((x) => ({ p: x.a })), 1, z0, z1)) fijos.push(sonar('gorriones', panner(a.p, 4), { gan: 0.12, bucle: true }));
+    vivos.fondo = sonar('fondo', calle.gan, { gan: 0.25, bucle: true });
+    // los gorriones, en un par de aleros del tramo que se anda (a 20–40 m y a 60–80 m del cruce con Nueva); luego van con la
+    // chica, a los aleros que tenga cerca (abajo, moverGorriones)
+    for (const [z0, z1] of [[20, 40], [60, 80]]) for (const a of cerca(vida.aleros.map((x) => ({ p: x.a })), 1, z0, z1)) { const pn = panner(a.p, 4), g = sonar('gorriones', pn, { gan: 0.12, bucle: true }); fijos.push(g); if (g) vivos.gorriones.push({ ...g, pn }); }
     // la radio: una ventana de la primera planta, hacia la mitad del tramo
     const v = cerca(vida.ventanas.filter((x) => x.p[1] < 6), 1, 40, 60)[0];
-    if (v) fijos.push(sonar('radio', panner([v.p[0] - v.n[0] * 0.5, v.p[1], v.p[2] - v.n[1] * 0.5], 1.5, 30), { gan: 0.12, bucle: true }));
+    if (v) { vivos.radio = sonar('radio', panner([v.p[0] - v.n[0] * 0.5, v.p[1], v.p[2] - v.n[1] * 0.5], 1.5, 30), { gan: 0.12, bucle: true }); fijos.push(vivos.radio); }
     // la tela de los toldos: sube con las rachas
     for (const t of vida.toldos) { const m = t.a.map((x, i) => (x + t.b[i]) / 2); const s = sonar('tela', panner(m, 2, 30), { gan: 0.08, bucle: true }); if (s) telas.push(s); }
   };
   const telas = [];
+  // (lo que depende de la hora del juego, del tiempo y de la estación: 15-11-2026, la revisión del juego. Antes los
+  // vencejos, los gorriones, la radio y el fondo de una tarde de verano sonaban a las 3 de la madrugada, con lluvia y en
+  // noviembre; y las campanas iban con la hora de verdad, no con la del juego, y desde unos 390 m de la iglesia)
+  const vivos = { fondo: null, gorriones: [], radio: null };
+  const ahora = () => {
+    const r = window.foto?.reloj, d = new Date(), h = r?.hora ?? d.getHours() + d.getMinutes() / 60, mes = d.getMonth() + 1;
+    const llueve = (r?.clima?.lluvia || 0) > 0.15, dia = h >= 7.5 && h < 20.5;
+    return { h, dia, llueve, verano: mes >= 5 && mes <= 8, pajaros: dia && !llueve };
+  };
+  const ajustarAmbiente = () => {
+    const a = ahora(), ct = ctx.currentTime;
+    vivos.fondo?.g.gain.setTargetAtTime(0.25 * (a.dia ? 1 : 0.35) * (a.llueve ? 0.5 : 1), ct, 2);
+    for (const g of vivos.gorriones) g.g.gain.setTargetAtTime(a.pajaros ? 0.12 : 0, ct, 2);
+    vivos.radio?.g.gain.setTargetAtTime(a.h >= 9 && a.h < 22 ? 0.12 : 0, ct, 2);
+  };
+  // (los gorriones, a los aleros que la chica tiene cerca, de 12 a 40 m: antes solo los había en Malfeitos)
+  const moverGorriones = () => {
+    const p = ctrl.getPosition(), cand = vida.aleros.filter((x) => { const d = Math.hypot(x.a[0] - p.x, x.a[2] - p.z); return d > 12 && d < 40; });
+    for (const g of vivos.gorriones) { if (!cand.length) return; const a = cand.splice(Math.floor(Math.random() * cand.length), 1)[0]; g.pn.positionX.value = a.a[0]; g.pn.positionY.value = a.a[1]; g.pn.positionZ.value = a.a[2]; }
+  };
 
   // ---- lo que suena de vez en cuando: vencejos que cruzan (moviéndose), un perro lejos, las campanadas de la hora
   const pendientes = { vencejos: azar(2, 6), perro: azar(15, 40), arrullo: azar(8, 20) };
@@ -96,13 +117,19 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
     if (mejor && dm < 30) sonar('arrullo' + Math.floor(Math.random() * 3), panner(mejor, 2, 40), { gan: 0.14 });
   };
   // las campanadas: a cada hora en punto, las de la hora (de 1 a 12), y una a la media; ?campanas=N, N al empezar
-  const torre = [vida.aleros.length ? vida.aleros[0].a[0] + 60 : 60, 25, -40];
+  const torre = [-289.5, 25, 181.5]; // (la torre de Santa María, exenta en la esquina suroeste, con las campanas a unos 25 m: docs/iglesia.md)
   const campanadas = (n) => { const pn = panner(torre, 30, 400); const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3500 }); lp.connect(pn); for (let i = 0; i < n; i++) sonar('campanada', lp, { gan: 0.3, cuando: i * 2.6 }); };
   let ultimoMinuto = -1;
   const reloj = () => {
-    const h = new Date(); const m = h.getHours() * 60 + h.getMinutes();
-    if (m === ultimoMinuto) return; ultimoMinuto = m;
-    if (h.getMinutes() === 0) campanadas(h.getHours() % 12 || 12); else if (h.getMinutes() === 30) campanadas(1);
+    // (con la hora del juego, que pasa a 8 minutos por minuto: al pasar a otra media hora, las de la hora o una; si el reloj
+    // salta —la tecla T—, nada. De 23 a 8, calladas, como en tantos pueblos)
+    const m = Math.floor(ahora().h * 60), media = Math.floor(m / 30);
+    if (ultimoMinuto < 0) { ultimoMinuto = m; return; }
+    const antes = Math.floor(ultimoMinuto / 30), salto = ((m - ultimoMinuto) % 1440 + 1440) % 1440; ultimoMinuto = m;
+    if (media === antes || salto > 20) return;
+    const hora = Math.floor(m / 60) % 24;
+    if (hora >= 23 || hora < 8) return;
+    campanadas(media % 2 === 0 ? (hora % 12 || 12) : 1);
   };
 
   // ---- los pasos: cuando un pie baja hasta el suelo (sus huesos, después de la animación)
@@ -128,7 +155,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
 
   // ---- cada fotograma: el oído en la cámara, lo que vuela, lo pendiente, los pasos
   const fw = new Vec3(), up = new Vec3();
-  let empezado = false, t = 0;
+  let empezado = false, t = 0, tAmb = 0, tGor = 40;
   const L = ctx.listener;
   app.on('update', (dt) => {
     if (ctx.state !== 'running') return;
@@ -151,14 +178,17 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
     for (const k of Object.keys(pendientes)) {
       pendientes[k] -= dt;
       if (pendientes[k] > 0) continue;
-      if (k === 'vencejos') { vencejos(); if (Math.random() < 0.5) setTimeout(vencejos, azar(300, 1200)); pendientes[k] = azar(4, 12); }
+      const a_ = ahora();
+      if (k === 'vencejos') { if (a_.verano && a_.pajaros) { vencejos(); if (Math.random() < 0.5) setTimeout(vencejos, azar(300, 1200)); } pendientes[k] = azar(4, 12); }   // (los vencejos, de mayo a agosto y de día)
       if (k === 'perro') { ladrido(); pendientes[k] = azar(25, 70); }
-      if (k === 'arrullo') { arrullo(); pendientes[k] = azar(10, 25); }
+      if (k === 'arrullo') { if (a_.pajaros) arrullo(); pendientes[k] = azar(10, 25); }
     }
     const w = viento(t);
     for (const s of telas) s.g.gain.setTargetAtTime(0.015 + 0.11 * w, ct, 0.3);
     pasos(dt);
-    if ((Math.floor(t) & 7) === 0) reloj();
+    reloj();
+    if ((tAmb -= dt) <= 0) { tAmb = 2; ajustarAmbiente(); }
+    if ((tGor -= dt) <= 0) { tGor = 40; moverGorriones(); }
   });
 
   // la carga: después de la calle, sin prisa; lo que falte simplemente no suena

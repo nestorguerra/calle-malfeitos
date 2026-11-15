@@ -34,7 +34,7 @@ export function montarSombras({ app, muneco, ctrl, camara, gente, reloj, q }) {
     let k = 0;
     // la chica (no mientras conduce), con su cuerpo: un poco más larga hacia donde mira
     if (ctrl.enabled && muneco.enabled) {
-      const p = muneco.getPosition(), y = muneco.getEulerAngles().y * Math.PI / 180;
+      const p = muneco.getPosition(), f = muneco.forward, y = Math.atan2(f.x, f.z);   // (el rumbo, del vector: los ángulos de Euler, pasados los 90°, salen reflejados y la mancha se torcía)
       quad(k++, p.x, p.y + 0.015, p.z, y, 0.34, 0.27);
     }
     // los vecinos de cerca

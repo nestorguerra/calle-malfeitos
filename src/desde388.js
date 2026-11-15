@@ -189,6 +189,7 @@ if (q.get('foto388')) {
         const now = Date.now();
         cam.setPosition(...enVideo(tvEn(now)).pos); cam.lookAt(...FOTO.mira);
         cam.camera.fov = lente(fovFoto(aspecto), zoomEn(now));
+        app.scene.fog.density = FOTO.bruma;   // (la del vídeo: el reloj la devolvía a la de la calle cada pocos segundos y, en el fundido, el juego salía blanqueado)
         if (now >= t0 + cruce * 1000) { app.off('update', paso); fin(); }
       };
       app.on('update', paso); paso();

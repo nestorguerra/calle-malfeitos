@@ -63,7 +63,8 @@ export function persona(v) {
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 function cuandoTexto(h, dia) {
-  const hh = Math.floor(h), mm = Math.round((h - hh) * 60), parte = h < 6 ? 'de la madrugada' : h < 13 ? 'de la mañana' : h < 21 ? 'de la tarde' : 'de la noche';
+  const hh = Math.floor(h), mm = Math.floor((h - hh) * 60),   // (truncados, como la pastilla: redondeando salía «a las 7:60»)
+    parte = h < 6 ? 'de la madrugada' : h < 13 ? 'de la mañana' : h < 21 ? 'de la tarde' : 'de la noche';
   return `${DIAS[dia]}, a las ${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${parte}`;
 }
 function haciendoTexto(v, o) {
@@ -214,6 +215,9 @@ export function montarIA({ q, movil }) {
       }
     }
     if (quien !== 'gpt' && quien !== 'servidor') {
+      // (con el servidor puesto y la IA del navegador sin despertar, no se bajan sus 880 MB a escondidas porque el servidor
+      // falle o diga que no tiene clave: el vecino dice sus frases de siempre. 15-11-2026, la revisión del juego)
+      if (servidor && !motor) throw new Error('Los vecinos no contestan ahora.');
       const m = await preparar();
       const flujo = await m.chat.completions.create({ messages: mensajes, temperature: 0.7, top_p: 0.9, max_tokens: 140, stream: true, response_format: { type: 'json_object', schema: ESQUEMA } });
       for await (const trozo of flujo) { todo += trozo.choices?.[0]?.delta?.content || ''; escribe(todo); }

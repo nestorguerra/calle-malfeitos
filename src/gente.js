@@ -174,7 +174,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   // (sin caer encima de un coche aparcado: la caja de cada uno, de src/conducir.js, con 0,7 m de margen)
   const libreDeCoches = (x, z, margen = 0.7) => {
     for (const k of window.foto?.coches?.coches || []) {
-      const c = k.caja; if (!c || Math.abs(c.x - x) > 4 || Math.abs(c.z - z) > 4) continue;
+      const c = k.caja; if (!c || k.conducido || Math.abs(c.x - x) > 4 || Math.abs(c.z - z) > 4) continue;
       const rx = x - c.x, rz = z - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx;
       if (Math.abs(lx) < c.L / 2 + margen && Math.abs(lz) < c.W / 2 + margen) return false;
     }
@@ -296,7 +296,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     if (v.paraguas && v.paraguas.enabled !== !!si) v.paraguas.enabled = !!si;
   }
   const iglesiaCentro = sitiosIglesia ? (() => { const s = sitiosIglesia.bancos; return [s.reduce((a, b) => a + b.asiento[0], 0) / s.length, s.reduce((a, b) => a + b.asiento[1], 0) / s.length]; })() : null;
-  const dentroIglesia = (x, z) => iglesiaCentro && Math.hypot(x - iglesiaCentro[0], z - iglesiaCentro[1]) < 17;
+  const dentroIglesia = (x, z) => window.foto?.reloj?.enPlanta?.(x, z) ?? (iglesiaCentro && Math.hypot(x - iglesiaCentro[0], z - iglesiaCentro[1]) < 17);   // (con la planta, como todos)
 
   // ---- nacer: uno nuevo en un sitio, con lo que va a hacer
   // dónde van los pies de un vecino sentado: en el clip la cadera queda 26 cm (a la altura de la chica, 1,6 m) por detrás
@@ -538,7 +538,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       }
       // la misa: al acabar, a la calle
       const misa = enMisa();
-      if (!misa.durante) for (const v of gente.slice()) if (v.estado === 'misa') { if (!enVista(v.x, v.y, v.z) && Math.random() < 0.5) morir(v); else salirDeMisa(v); }
+      if (!misa.durante) for (const v of gente.slice()) if (v.estado === 'misa' && !v.ocupado) { if (!enVista(v.x, v.y, v.z) && Math.random() < 0.5) morir(v); else salirDeMisa(v); }   // (al que está hablando con la chica, no: se le sacaba del banco o desaparecía a mitad de charla)
       // con lluvia: los sentados se levantan y se van, los niños que juegan, a casa, los corros duran poco; y el paraguas,
       // abierto para los que están de pie en la calle (15-11-2026, la revisión del juego: con lluvia seguía la plaza llena,
       // con gente en los bancos y niños jugando, y nadie con paraguas)
@@ -557,7 +557,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     for (const v of gente) actualizar(v, dt, tt, p, conduce);
     // los corros que se deshacen: cada uno, a lo suyo
     for (const v of gente) if (v.grupo && !v.grupo.jugar && tt > v.grupo.hasta && v.estado === 'charla' && !v.ocupado) {
-      const g = v.grupo; for (const o of g.miembros) { o.grupo = null; const d = destino(o); if (!d || !irA(o, d[0], d[1], d[2])) o.quiereIrse = true; }
+      const g = v.grupo; for (const o of g.miembros) { o.grupo = null; if (o.ocupado) continue; const d = destino(o); if (!d || !irA(o, d[0], d[1], d[2])) o.quiereIrse = true; }   // (el que está hablando con la chica se queda: con una charla larga se ponía a «andar» sin moverse)
     }
     cuentaAltura++;
     capsulas(p, conduce);
@@ -614,7 +614,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       // (un coche aparcado delante, en su camino: se le rodea por el lado que le queda más lejos del coche, más despacio)
       let frena = false;
       for (const k of window.foto?.coches?.coches || []) {
-        const c = k.caja; if (!c || Math.abs(c.x - v.x) > 6 || Math.abs(c.z - v.z) > 6) continue;
+        const c = k.caja; if (!c || k.conducido || Math.abs(c.x - v.x) > 6 || Math.abs(c.z - v.z) > 6) continue;
         for (const ad of [0.8, 1.6]) {
           const px = v.x + dx * ad, pz = v.z + dz * ad, rx = px - c.x, rz = pz - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx;
           if (Math.abs(lx) < c.L / 2 + 0.35 && Math.abs(lz) < c.W / 2 + 0.35) { const la = (c.x - v.x) * dz - (c.z - v.z) * dx; lat = la > 0 ? -1 : 1; frena = true; break; }
@@ -882,6 +882,17 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     destino, carril, nodoCerca, camino: caminoEntre, enLaCalle, misa: enMisa, nodos: n,
     // (para las pruebas de las puertas, tools/prueba_puertas.py: si se ve a alguien, sacar a uno por una puerta de cerca y
     // mandar a otro a entrar por la suya)
+    // (la chica se sienta en (x, z): ese sitio, ocupado, para que ningún vecino se siente encima de ella; devuelve con qué
+    // dejarlo libre al levantarse. 15-11-2026, la revisión del juego)
+    ocupar: (x, z) => {
+      let m = null, dm = 0.6;
+      const mira = (sx, sz, st) => { const d = Math.hypot(sx - x, sz - z); if (d < dm && !st.quien) { dm = d; m = st; } };
+      for (const b of bancosLibres) { const tx = -b.mira[1], tz = b.mira[0]; for (const st of b.sitios) mira(b.p[0] + tx * st.u, b.p[2] + tz * st.u, st); }
+      for (const st of sillas) mira(st.p[0], st.p[2], st);
+      for (const st of asientosIglesia) mira(st.asiento[0], st.asiento[1], st);
+      if (!m) return null;
+      const CHICA = { chica: true }; m.quien = CHICA; return () => { if (m.quien === CHICA) m.quien = null; };
+    },
     seVe: (x, y, z) => enVista(x, y, z), puertas: () => abiertas.map((d) => ({ p: d.pt.p, k: d.k })), _red: { X, Z, VEC, CALLE, OF, PARED, BORDE, n, carril, hayPaso, nombres: C.map((c) => c.nombre) },
     salirDeCasa: (x, z, dmin = 3, dmax = 30) => { const pt = puertaCerca(x, z, dmin, dmax), l = deTipo.adulto.filter((i) => ASSETS[i]); return pt && l.length ? salirPorPuerta(elegir(l), pt) : null; },
     entrarEnCasa: (v, x, z, pt0 = null) => { const pt = pt0 || puertaCerca(x, z, 0, 30); if (!pt || !v || !llegada(pt)) return null; v.ocupado = false; const d = [pt.p[0] + pt.n[0] * 0.5, pt.p[2] + pt.n[1] * 0.5]; return irA(v, d[0], d[1], { tipo: 'portal', mira: [-pt.n[0], -pt.n[1]], pt, nodo: pt._nodo }) ? pt : null; },

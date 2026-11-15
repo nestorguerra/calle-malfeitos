@@ -98,7 +98,10 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   const inicio = q.get('hora');
   if (inicio) { const [h, m] = inicio.split(':').map(Number); hora = (h || 0) + (m || 0) / 60; }
   const ritmo = parseFloat(q.get('ritmo') ?? (inicio ? '0' : String(24 * 60 / (3 * 3600)))); // (minutos del juego por segundo de verdad: un día en 3 horas)
-  const inicioAno = Date.UTC(ahora.getUTCFullYear(), 0, 0); const diaDelAno = Math.floor((ahora - inicioAno) / 86400000);
+  // (la fecha, la de España: entre las 0:00 y la 1:00 —las 2:00 en verano— la de UTC aún es la de ayer, y la luna salía con
+  // un día de desfase toda la partida; 15-11-2026, la revisión del juego)
+  const local = new Date(ahora.getTime() + desfase * 3600000), medianoche = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  const inicioAno = Date.UTC(local.getUTCFullYear(), 0, 0); const diaDelAno = Math.floor((medianoche - inicioAno) / 86400000);
   const estado = { hora, diaSemana, dia: 0, sol: [0, 0], noche: 0, luna: null, clima: { sol: 1, cielo: 1, niebla: 0, gris: 0, texto: '' } };
   const clima = estado.clima;
   // la luna: un disco que mira siempre a la cámara, a 900 m en su dirección, sin bruma; su cara, según la fase
@@ -217,7 +220,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
     // (la luz del cielo cae mucho antes que la del sol: a 22°, la de la tarde con la que se ajustó la escena, y con el sol poniéndose, poco más de un cuarto)
     const cielo = Math.max(0, Math.min(1, (E + 6) / 28));
     // el sol, o de noche la luna desde donde está (sin ella en el cielo, una luz de estrellas, alta y muy floja)
-    const luna = posicionLuna(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()) + (estado.dia * 24 + estado.hora - desfase) * 3600000);
+    const luna = posicionLuna(medianoche + (estado.dia * 24 + estado.hora - desfase) * 3600000);
     estado.luna = luna;
     const conLuna = luna.alt > 2;
     const e_ = E > -2 ? Math.max(E, 2) : conLuna ? luna.alt : 70, a_ = E > -2 ? A : conLuna ? luna.az : 180;
@@ -284,5 +287,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
     }
   });
   aplicar(true);
-  return Object.assign(estado, { adelantar, poner: (h) => { estado.hora = h; aplicar(true); }, aplicar });
+  // (dentro de la iglesia, con su planta: lo mismo para todos —src/acciones.js, src/gente.js—, que antes lo medía cada uno a
+  // su manera; null si aún no se tiene la planta. 15-11-2026, la revisión del juego)
+  return Object.assign(estado, { adelantar, poner: (h) => { estado.hora = h; aplicar(true); }, aplicar, enPlanta: (x, z) => (planta ? enPlanta(x, z) : null) });
 }

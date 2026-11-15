@@ -27,14 +27,14 @@ function frases({ tipo, sexo, h, dia, sitio, misa, jugando, sentado }) {
   if (sitio === 'iglesia') return [
     `${saludo}${hija}… (en voz baja) ${misa.durante ? 'Que estamos en misa.' : 'Aquí se está en paz, ¿verdad?'}`,
     'Esta es Santa María. La torre la acabaron en 1700, y la portada de los pies es de casi cien años después.',
-    misa.antes ? 'Ahora empieza la misa. Si quieres, siéntate en un banco.' : 'Mira el retablo, todo dorado. De pequeña me pasaba la misa contando los santos.',
+    misa.antes ? 'Ahora empieza la misa. Si quieres, siéntate en un banco.' : (tipo === 'nino' ? 'Mira el retablo, todo dorado. ¡Tiene un montón de santos!' : `Mira el retablo, todo dorado. De ${sexo ? 'pequeño' : 'pequeña'} me pasaba la misa contando los santos.`),   // (cada uno según quién es: lo decían también los hombres y los niños)
     'Si quieres encender una vela, el lampadario está ahí, delante del Sagrado Corazón.',
   ];
   if (tipo === 'nino') return jugando ? ['¡Hola! ¿Juegas? ¡Te toca pillar!', '¡No me pillas, no me pillas!', 'Mi madre dice que a las nueve a casa, que mañana hay cole.', '¡Adiós! ¡Que me pillan!']
     : [`¡Hola! ${h < 14.5 && dia > 0 && dia < 6 ? 'Vengo del cole.' : 'Voy a la plaza a jugar.'}`, '¿Tú no eres de aquí, verdad? Se nota.', 'En la plaza de España juegan todos los niños por la tarde.', '¡Adiós!'];
   if (tipo === 'mayor') return [
     `¡${saludo}${hija}! ¿Tú de quién eres? Que no te tengo vista.`,
-    sentado ? 'Aquí, sentada al ' + (h < 16 ? 'sol' : 'fresco') + ', que en casa se queda una muy sola.' : (h < 13 ? 'Voy a por el pan, que el de pueblo se acaba enseguida.' : 'Voy dando un paseíto, que el médico dice que hay que andar.'),
+    sentado ? (sexo ? 'Aquí, sentado al ' + (h < 16 ? 'sol' : 'fresco') + ', que en casa se aburre uno.' : 'Aquí, sentada al ' + (h < 16 ? 'sol' : 'fresco') + ', que en casa se queda una muy sola.') : (h < 13 ? 'Voy a por el pan, que el de pueblo se acaba enseguida.' : 'Voy dando un paseíto, que el médico dice que hay que andar.'),
     misa.antes ? 'Ahora hay misa en Santa María. ¿No vienes?' : 'Antes estas calles estaban llenas de críos jugando. Ahora, con la tele y los teléfonos…',
     `Hoy es ${DIAS[dia]}${dia === 0 ? ', día de misa y de ver a la familia' : dia === 6 ? ', que vienen los nietos' : ''}.`,
     'Bueno, que te vaya bien, y saluda a los tuyos.',
@@ -149,7 +149,9 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   const pie = () => { const p = ctrl.getPosition(); return { x: p.x, y: p.y - 1, z: p.z }; };
   const yawChica = () => ((tpc._modelYaw - (tpc.modelYawOffset || 0)) * Math.PI) / 180;
   const iglesiaCentro = sitiosIglesia ? [sitiosIglesia.bancos.reduce((a, b) => a + b.asiento[0], 0) / sitiosIglesia.bancos.length, sitiosIglesia.bancos.reduce((a, b) => a + b.asiento[1], 0) / sitiosIglesia.bancos.length] : null;
-  const enIglesia = (p) => iglesiaCentro && Math.hypot(p.x - iglesiaCentro[0], p.z - iglesiaCentro[1]) < 16 && Math.abs(p.y) < 1.5;
+  // (con la planta de la iglesia, como el reloj y el canto: con el círculo de 16 m, el altar y la puerta de los pies quedaban
+  // fuera, y junto a las puertas laterales, por fuera, se ofrecía arrodillarse)
+  const enIglesia = (p) => { const r = window.foto?.reloj?.enPlanta?.(p.x, p.z); return Math.abs(p.y) < 1.5 && (r ?? (iglesiaCentro && Math.hypot(p.x - iglesiaCentro[0], p.z - iglesiaCentro[1]) < 16)); };
   // los asientos: los bancos (dos o tres sitios cada uno), las sillas de las puertas y los bancos de la iglesia. x, z: el
   // sitio (para buscarlo y ver si está ocupado); rx, rz: donde va la chica (sus pies). En el clip de sentada la cadera
   // queda 26 cm por detrás de los pies: con los pies en el asiento, la cadera caía detrás del respaldo y el muslo
@@ -197,6 +199,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   function sentarse(a) {
     const p = pie();
     est.modo = 'sentandose'; est.asiento = a; est.t = 1.3; est.desde = p;
+    est.liberarSitio?.(); est.liberarSitio = gente?.ocupar?.(a.x, a.z) || null;   // (que ningún vecino se siente en su sitio)
     // (de pie delante del asiento, de espaldas a él, y de ahí abajo mientras se sienta; en la iglesia, entre los bancos no
     // cabe: de lado desde el pasillo)
     const raiz = { x: a.rx, y: a.y, z: a.rz };
@@ -245,7 +248,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   }
   function bailar() { est.modo = 'bailando'; capa.transition('Bailar', 0.3); ponerBotones(); }
   function aPie() {
-    const antes = est.modo; est.modo = 'pie'; est.asiento = null; mover = null;
+    const antes = est.modo; est.modo = 'pie'; est.asiento = null; mover = null; est.liberarSitio?.(); est.liberarSitio = null;
     if (antes === 'rodillas' || antes === 'bailando' || antes === 'vela') capa.transition('Quieto', 0.35);
     if (antes !== 'bailando') { const p = antes === 'rodillas' && est.donde ? est.donde : pie(); soltar(p.x, p.y, p.z); } // (del reclinatorio, a donde estaba de pie)
     ponerBotones();
@@ -420,13 +423,15 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     if (est.modo !== 'pie') { tpc._jumping = true; ctrl.rigidbody.linearVelocity = Vec3.ZERO; }
     if (est.modo === 'hablando' && est.camYaw != null) { let d = est.camYaw - tpc._yaw; d -= Math.round(d / 360) * 360; tpc._yaw += d * Math.min(1, dt * 2.5); }
     // (andar lo deshace: levantarse, dejar de bailar, ponerse de pie)
-    const quiere = tpc._state?.axis?.lengthSq?.() > 0.01 || (tpc._state?.space || 0) > 0;
+    // (en la charla, el Espacio pasa a la frase siguiente —el teclado, arriba—: solo andar la deshace. Antes el Espacio
+    // también contaba como andar, y la charla se cerraba nada más pasar de frase; 15-11-2026, la revisión del juego)
+    const quiere = tpc._state?.axis?.lengthSq?.() > 0.01 || (est.modo !== 'hablando' && (tpc._state?.space || 0) > 0);
     if (quiere) { if (est.modo === 'sentada') levantarse(); else if (est.modo === 'bailando' || est.modo === 'rodillas') aPie(); else if (est.modo === 'hablando') despedirse(); }
     if (est.t > 0) {
       est.t -= dt;
       if (est.t <= 0) {
         if (est.modo === 'sentandose') { est.modo = 'sentada'; capa.transition(est.asiento?.tipo === 'iglesia' ? 'SentadaIglesia' : 'Sentada', 0.4); ponerBotones(); } // (en la iglesia, los pies en el reclinatorio)
-        else if (est.modo === 'levantandose') { const v_ = est.vuelta; est.modo = 'pie'; est.asiento = null; capa.transition('Quieto', 0.25); soltar(v_.x, v_.y, v_.z); ponerBotones(); }
+        else if (est.modo === 'levantandose') { const v_ = est.vuelta; est.modo = 'pie'; est.asiento = null; est.liberarSitio?.(); est.liberarSitio = null; capa.transition('Quieto', 0.25); soltar(v_.x, v_.y, v_.z); ponerBotones(); }
         else if (est.modo === 'vela') { capa.transition('Quieto', 0.3); aPie(); }
       }
     }

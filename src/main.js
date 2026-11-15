@@ -1089,16 +1089,16 @@ if (escena.vida && q.get('vida') !== '0') {
   if (sonido && escena.dentro?.canto) canto = montarCanto({ app, sonido, ctrl, url: escena.dentro.canto, planta: escena.dentro.planta, q });
   const centro = await (await fetch(escena.vida.replace('vida.json', 'centro.json'))).json();
   trasListo.then(() => montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q })).then((a) => { if (window.foto) window.foto.animales = a; });
-  montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; });
+  montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; else trasListo.then(() => { if (window.foto) window.foto.dinamicas = d; }); });   // (llegaba antes de existir window.foto)
   trasListo.then(() => montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q, movil })).then((c) => {
     if (window.foto) window.foto.coches = c;
     // (subirse a un coche aparcado y conducirlo: src/conducir.js)
     try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
     catch (e) { console.warn('conducir:', e); }
-  });
+  }).catch((e) => { console.warn('coches:', e); if (window.foto && !('coches' in window.foto)) window.foto.coches = null; });   // (null si falla: la entrada desde la web no espera 20 s)
   // la gente del pueblo, según la hora (src/gente.js; docs/gente.md): después de lo demás, que no retrase la carga
   if (escena.gente) trasListo.then(() => montarGente({ app, vida, carpeta: escena.gente, glb, camara, chica: ctrl, reloj, q, movil, iglesia: escena.iglesiaSitios,
-    conducir: () => window.foto?.conducir?.estado?.() })).then((g) => { if (window.foto) window.foto.gente = g; }).catch((e) => console.warn('gente:', e))
+    conducir: () => window.foto?.conducir?.estado?.() })).then((g) => { if (window.foto) window.foto.gente = g; }).catch((e) => { console.warn('gente:', e); if (window.foto) window.foto.gente = null; })   // (null si falla: la entrada desde la web no espera 20 s)
     // y lo que puede hacer la chica con ella y con el pueblo: sentarse, hablar, saludar, bailar, arrodillarse, encender una vela (src/acciones.js)
     .then(() => (chica ? montarAcciones({ app, q, ctrl, muneco, tpc, carpeta: escena.chica, glb, pista, movil, vida, gente: window.foto?.gente, iglesia: escena.iglesiaSitios,
       conducir: () => window.foto?.conducir?.estado?.(), reloj }) : null)).then((a) => { if (window.foto) window.foto.acciones = a; }).catch((e) => console.warn('acciones:', e));
@@ -1411,8 +1411,10 @@ if (escena.dentro && q.get('dentro') !== '0') {
     for (let k = 0; k < 3; k++) temblor[k] = 0.82 * temblor[k] + 0.18 * (Math.sin(t * (9.1 + k * 1.7) + k * 2.1) * 0.6 + Math.sin(t * (21.3 + k * 3.1) + k) * 0.4 + (Math.random() - 0.5) * 0.9);
     for (const L of llamas) { L.mt.emissiveIntensity = L.base * (1 + (L.halo ? 0.22 : 0.16) * temblor[L.k]); L.mt.update(); }
   });
-  const montar = async () => {
-    if (!cargando || !asset) return; // (se alejó mientras bajaba)
+  const montar = async (cargado) => {
+    // (se alejó mientras bajaba: lo bajado se suelta, que el motor avisa de la carga aunque el asset ya se haya quitado, y se
+    // quedaban 4,5 MB en la memoria —sobre todo al subirse a un coche cerca de la iglesia—; 15-11-2026, la revisión del juego)
+    if (!cargando || !asset || (cargado && cargado !== asset)) { try { if (cargado && cargado !== asset) cargado.unload(); } catch (e) { /* ignore */ } return; }
     const este = asset;
     asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = 8; });
     // (las texturas que ya trae la iglesia de fuera —la sillería, su relieve, la madera de las puertas—, las mismas: el

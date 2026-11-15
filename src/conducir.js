@@ -475,7 +475,10 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
 
   // ---- cada fotograma
   const marcarCerca = () => {
-    if (est.modo !== 'pie' || !ctrl.enabled) { est.cerca = null; return; }
+    // (y solo si la chica está de pie y libre: hablando o sentada junto a un coche, la E —«Seguir hablando», «Levantarse»—
+    // también la subía al coche; 15-11-2026, la revisión del juego)
+    const modoChica = window.foto?.acciones?.estado?.().modo;
+    if (est.modo !== 'pie' || !ctrl.enabled || (modoChica && modoChica !== 'pie')) { est.cerca = null; return; }
     const p = ctrl.getPosition(); let mejor = null, dm = 1.1;
     for (const k of coches.coches) {
       const c = k.caja; if (!c || k.conducido || !k.lejos.enabled) continue;
