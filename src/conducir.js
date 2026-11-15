@@ -17,7 +17,7 @@
 // Teclas: E subir y bajar, W/S o flechas acelerar y frenar (y marcha atrás parado), A/D girar, Espacio freno de mano, C la
 // vista. En el móvil, el mismo mando de la izquierda (arriba acelera, abajo frena, a los lados gira) y los botones.
 // ?conducir=0 lo quita todo (y la colisión queda como venía)
-import { Asset, BUFFER_STATIC, Entity, INDEXFORMAT_UINT32, IndexBuffer, KeyboardMouseSource, Quat, SEMANTIC_POSITION, Vec3 } from 'playcanvas';
+import { Asset, BUFFER_STATIC, Color, CULLFACE_NONE, Entity, INDEXFORMAT_UINT32, IndexBuffer, KeyboardMouseSource, Quat, SEMANTIC_POSITION, Vec3 } from 'playcanvas';
 
 const RAD = 180 / Math.PI;
 
@@ -149,6 +149,20 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   // (los botones no dejan pasar el toque al lienzo: si no, el mando del móvil lo tomaba por el joystick)
   for (const b of [bSubir, bBajar, bVista]) for (const ev of ['pointerdown', 'pointerup', 'touchstart']) b.addEventListener(ev, (e) => e.stopPropagation());
 
+  // ---- el zoom de la vista de fuera (15-11-2026, el usuario: «que cuando subiera al coche pudiera, con los dos dedos del
+  // touchpad, alejarme o acercarme para ver el coche desde más arriba o abajo, igual que cuando camina»): la rueda del
+  // ratón o dos dedos en el panel táctil (y pellizcar, que el navegador manda como rueda con Ctrl), de 0,6 a 2,6 veces
+  // la distancia; más lejos, también más alta. En el móvil, pellizcando con dos dedos en la pantalla
+  addEventListener('wheel', (e) => {
+    if (est.modo !== 'conduciendo' || est.vista !== 'fuera') return;
+    e.preventDefault();
+    est.zoom = Math.max(0.6, Math.min(2.6, (est.zoom || 1) * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));
+  }, { passive: false });
+  { let d0 = null, z0 = 1; const dd = (e) => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    // (los dos dedos en la mitad derecha: en la izquierda está el mando, y un dedo en cada lado es conducir y mirar)
+    addEventListener('touchstart', (e) => { if (est.modo === 'conduciendo' && e.touches.length === 2 && [...e.touches].every((x) => x.clientX > innerWidth * 0.45)) { d0 = dd(e); z0 = est.zoom || 1; } }, { passive: true });
+    addEventListener('touchmove', (e) => { if (d0 && e.touches.length === 2 && est.modo === 'conduciendo' && est.vista === 'fuera') est.zoom = Math.max(0.6, Math.min(2.6, z0 * d0 / Math.max(20, dd(e)))); }, { passive: true });
+    addEventListener('touchend', (e) => { if (e.touches.length < 2) d0 = null; }, { passive: true }); }
   // ---- el estado
   const est = { modo: 'pie', k: null, cerca: null, vista: 'fuera', v: 0, rpm: RALENTI, marcha: 1, atras: false, giro: 0, freno: 0, acel: 0, mano: false,
     bajando: false, transicion: 0, mandos: null, cuadro: 0, mirar: { yaw: 0, pitch: 0, quieto: 0 }, camYaw: null, camPos: new Vec3(), camMira: new Vec3(), tiempoAtras: 0 };
@@ -225,9 +239,19 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       if (ruedasVistas) ruedasVistas.forEach((r) => { r._reposo = r.getLocalPosition().clone(); r._giro0 = r.getLocalRotation().clone(); });
       if (volante) volante._giro0 = volante.getLocalRotation().clone();
       for (const a of Object.values(agujas)) if (a) a._giro0 = a.getLocalRotation().clone();
-    } else {
-      const copia = k.base.clone(); vista.addChild(copia); copia.setLocalPosition(0, 0, 0); copia.setLocalRotation(Quat.IDENTITY);
-      if (k.pintura) for (const r of copia.findComponents('render')) for (const mi of r.meshInstances) if (k.c.pintura.some((p) => mi.material.name.startsWith(p))) mi.material = k.pintura;
+    }
+    // (desde fuera, el coche de cerca entero —el mismo de los aparcados, con su carrocería, sus lunas tintadas y su
+    // interior—, y de la versión para conducir solo sus ruedas, que giran y doblan: la carrocería de conducir va hecha para
+    // verla desde dentro y, desde fuera, por la luna de atrás asomaban huecos y dientes de sierra. 15-11-2026, el usuario:
+    // «sigue estando pixelado cuando miras desde fuera… que se vea en total definición»)
+    let fuera = null;
+    if (k.base && (q.get('fueracerca') !== '0' || !modelo)) {   // (?fueracerca=0: desde fuera, la carrocería de conducir, como antes)
+      fuera = k.base.clone(); vista.addChild(fuera); fuera.setLocalPosition(0, 0, 0); fuera.setLocalRotation(Quat.IDENTITY);
+      if (k.pintura) for (const r of fuera.findComponents('render')) for (const mi of r.meshInstances) if (k.c.pintura.some((p) => mi.material.name.startsWith(p))) mi.material = k.pintura;
+      if (modelo) {   // (sus ruedas, fuera: las que se ven son las de la versión para conducir, con los mismos materiales)
+        const deRueda = new Set(); for (const r of ruedasVistas || []) if (r) for (const rc of r.findComponents('render')) for (const mi of rc.meshInstances) deRueda.add(mi.material.name.replace(/\.\d+$/, ''));
+        for (const r of fuera.findComponents('render')) for (const mi of r.meshInstances) { const n = mi.material.name.replace(/\.\d+$/, ''); if (deRueda.has(n) && mi.aabb.center.y - fuera.getPosition().y < 0.6) mi.visible = false; }
+      }
     }
     // (sus matrículas y su sombra de contacto, las del coche de la calle)
     const placas = k.lejos.clone(); placas.enabled = true; vista.addChild(placas); placas.setLocalPosition(0, 0, 0); placas.setLocalRotation(Quat.IDENTITY); placas.setLocalScale(1, 1, 1);
@@ -236,7 +260,20 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     // (el interior no da sombra en el móvil: va dentro de la carrocería, que ya la da, y son unas veinte llamadas más
     // por cascada)
     if (interior && movil) for (const r of interior.findComponents('render')) r.castShadows = false;
-    C = { k, chasis, veh, ajuste, rayos, vista, placas, modelo, ruedasVistas, volante, agujas, interior, R, L, W, H, cdm, anclaY, giroRueda: [0, 0, 0, 0] };
+    C = { k, chasis, veh, ajuste, rayos, vista, placas, modelo, fuera, ruedasVistas, volante, agujas, interior, R, L, W, H, cdm, anclaY, giroRueda: [0, 0, 0, 0] };
+    // (sus cristales: desde fuera, tintados como los de los coches aparcados —src/vida.js—; si no, por la luna de atrás, casi
+    // transparente, se veía el interior hecho para la vista del conductor, a cuadros. Desde dentro, los de siempre, claros.
+    // 15-11-2026, el usuario: «sigue estando pixelado cuando miras desde fuera»)
+    C.vidrios = [];
+    if (modelo?.e && q.get('lunas') !== '0') {
+      const tintado = new Map();
+      for (const r of modelo.e.findComponents('render')) for (const mi of r.meshInstances) {
+        const m = mi.material; if (!m || !/glass|cristal/i.test(m.name) || /relojes/i.test(m.name)) continue;
+        if (!tintado.has(m)) { const mt = m.clone(); mt.opacity = Math.max(0.88, m.opacity); mt.diffuse = new Color(0.025, 0.03, 0.035); mt.diffuseMap = null; mt.gloss = Math.max(mt.gloss || 0, 0.9); mt.cull = CULLFACE_NONE; mt.update(); tintado.set(m, mt); } // (por las dos caras: alguna luna mira hacia dentro y desde fuera no se dibujaba) // (al 72 %, por la luna de atrás aún se veía el interior a cuadros)
+        C.vidrios.push({ mi, claro: m, oscuro: tintado.get(m) });
+      }
+    }
+    ponerVidrios();
     // la cámara, desde donde estaba hasta detrás del coche
     est.camYaw = null; est.transicion = 0; est.desde = { p: camara.getPosition().clone(), r: camara.getRotation().clone() };
     est.marcha = 1; est.atras = false; est.rpm = RALENTI; est.v = 0; est.giro = 0; est.vista = 'fuera';
@@ -361,12 +398,23 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   bSubir.addEventListener('click', () => { if (est.cerca) subir(est.cerca); });
   bBajar.addEventListener('click', () => bajar());
   bVista.addEventListener('click', () => cambiarVista());
+  // (y desde fuera, sin el interior hecho para la vista del conductor —el salpicadero, los asientos, el volante, los relojes—:
+  // por las lunas tintadas no se ve un interior, solo cristal oscuro, y el de dentro asomaba a cuadros y con dientes de sierra)
+  function ponerVidrios() {
+    const dentro = est.vista === 'dentro';
+    for (const v of C?.vidrios || []) v.mi.material = dentro ? v.claro : v.oscuro;
+    if (C?.modelo?.e && C.fuera) {
+      // (desde fuera, el coche de cerca y las ruedas de conducir; desde dentro, la versión para conducir entera)
+      C.fuera.enabled = !dentro;
+      for (const x of C.modelo.e.children) if (!/^rueda_/.test(x.name)) x.enabled = dentro;
+    } else if (C?.modelo?.e && q.get('lunas') !== '0') for (const n of ['interior', 'cristales_dentro', 'cristal_relojes', 'volante', 'aguja_rpm', 'aguja_velocidad']) { const x = C.modelo.e.findByName(n); if (x) x.enabled = dentro; }
+    else if (C?.fuera) C.fuera.enabled = true;
+  }
   function cambiarVista() {
     if (est.modo !== 'conduciendo') return;
-    est.vista = est.vista === 'fuera' ? 'dentro' : 'fuera'; est.mirar.yaw = est.mirar.pitch = 0;
+    est.vista = est.vista === 'fuera' ? 'dentro' : 'fuera'; est.mirar.yaw = est.mirar.pitch = 0; ponerVidrios();
     if (est.vista === 'dentro') { est.near = camara.camera.nearClip; est.fov = camara.camera.fov; camara.camera.nearClip = 0.04; camara.camera.fov = parseFloat(q.get('fovcoche') || (innerWidth < innerHeight ? '82' : '58')); } // (en vertical, más abierta: con 62° de alto quedaban 30 de ancho)
     else { camara.camera.nearClip = est.near ?? 0.1; camara.camera.fov = est.fov ?? camara.camera.fov; }
-    if (C?.interior) C.interior.enabled = true;
     ponerBotones();
   }
   function ponerBotones() {
@@ -526,9 +574,9 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       if (est.camYaw === null) est.camYaw = yawCoche;
       let d = yawCoche - est.camYaw; d -= Math.round(d / 360) * 360;
       est.camYaw += d * (1 - Math.exp(-dt * 3.2));
-      const yaw = est.camYaw + M.yaw, pitch = 11 + M.pitch;
+      const zoom = est.zoom || 1, yaw = est.camYaw + M.yaw, pitch = 11 + M.pitch + (zoom - 1) * 9;
       const pivote = T.transformPoint(v1.set(0, 1.25 - cdm, 0), new Vec3());
-      const dist = Math.max(4.6, L * 1.25);
+      const dist = Math.max(4.6, L * 1.25) * zoom;
       qt.setFromEulerAngles(-pitch, yaw, 0);
       const atras = qt.transformVector(Vec3.BACK, v2);
       const quiere = v3.copy(pivote).add(atras.clone().mulScalar(dist));

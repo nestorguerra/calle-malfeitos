@@ -1,8 +1,13 @@
 // El reloj del juego y la luz según la hora (docs/pueblo_vivo.md; el usuario, 14-11-2026: «en función de la hora del día
 // […] que el juego vaya fluctuando a lo largo del día, como si fuera un GTA»).
-// - La hora: empieza en la de España de ahora y corre como en los juegos de mundo abierto, un día en 48 minutos (medio
-//   minuto del juego por segundo). ?hora=19:30 la pone y ?ritmo= cambia lo que corre (0, parada). La T la adelanta una
-//   hora (con mayúsculas, la atrasa); en el móvil, tocar la hora. Se ve en una pastilla arriba.
+// - La hora: empieza en la de España de ahora y corre como en los juegos de mundo abierto, un día en 3 horas (8 minutos del
+//   juego por minuto; 15-11-2026, el usuario: «que la velocidad del día sea más lenta, unas 3 horas las 24 del día»; antes,
+//   en 48 minutos). ?hora=19:30 la pone y ?ritmo= cambia lo que corre (minutos del juego por segundo; 0, parada). La T la
+//   adelanta una hora (con mayúsculas, la atrasa); en el móvil, tocar la hora. Se ve en una pastilla arriba.
+// - La luna: por su camino de verdad (una cuenta sencilla, de un grado), con su fase; se ve en el cielo y de noche alumbra
+//   desde donde está, más cuanto más llena. Sin ella en el cielo, la noche queda a la luz de las estrellas, muy floja.
+// - El tiempo que hace (src/tiempo.js): las nubes apagan el sol y el cielo, la niebla y la lluvia cierran la bruma; lo
+//   pone en estado.clima y la pastilla lo dice.
 // - El sol: por su camino de verdad sobre Guareña (38,86° N, 6,10° O), el de la fecha de hoy. Su color y su fuerza, de la
 //   altura: blanco cálido a mediodía, dorado por la tarde, naranja al ponerse; de noche, una luna azulada y floja.
 // - El cielo y la luz de ambiente, la exposición y la bruma, a juego: de noche, el cielo oscuro y los faroles encendidos
@@ -36,6 +41,40 @@ function posicionSol(diaDelAno, horaUTC) {
   return [E / rad, ((A / rad) % 360 + 360) % 360];
 }
 
+// la luna (una cuenta sencilla, de un grado: la longitud y la latitud eclípticas con su término principal, y de ahí la
+// altura y el rumbo sobre Guareña) y lo iluminada que está (de 0, nueva, a 1, llena), para una fecha en milisegundos UTC
+function posicionLuna(ms) {
+  const d = ms / 86400000 - 10957.5; // (días desde el 1 de enero de 2000 a mediodía)
+  const L = (218.316 + 13.176396 * d) * rad, M = (134.963 + 13.064993 * d) * rad, F = (93.272 + 13.229350 * d) * rad;
+  const lon = L + 6.289 * rad * Math.sin(M), lat = 5.128 * rad * Math.sin(F), e = 23.4397 * rad;
+  const ra = Math.atan2(Math.sin(lon) * Math.cos(e) - Math.tan(lat) * Math.sin(e), Math.cos(lon));
+  const dec = Math.asin(Math.sin(lat) * Math.cos(e) + Math.cos(lat) * Math.sin(e) * Math.sin(lon));
+  const H = (280.16 + 360.9856235 * d) * rad + LON * rad - ra, fi = LAT * rad;
+  const alt = Math.asin(Math.sin(fi) * Math.sin(dec) + Math.cos(fi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(fi) - Math.tan(dec) * Math.cos(fi)) + Math.PI;
+  const g = (357.528 + 0.9856003 * d) * rad, ls = (280.46 + 0.9856474 * d) * rad + 1.915 * rad * Math.sin(g) + 0.02 * rad * Math.sin(2 * g);
+  const fase = (1 - Math.cos(lat) * Math.cos(lon - ls)) / 2, crece = Math.sin(lon - ls) > 0;
+  return { alt: alt / rad, az: ((az / rad) % 360 + 360) % 360, fase, crece };
+}
+// la cara de la luna: un disco gris con mares más oscuros y la parte en sombra según la fase (de un lado si crece, del
+// otro si mengua); se rehace al cambiar la fase
+function texturaLuna(device, fase, crece) {
+  const n = 128, datos = new Uint8Array(n * n * 4), rnd = (i, j) => { const s = Math.sin(i * 12.9898 + j * 78.233) * 43758.5453; return s - Math.floor(s); };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = (i + 0.5) / n * 2 - 1, y = (j + 0.5) / n * 2 - 1, r2 = x * x + y * y, k = (j * n + i) * 4;
+    if (r2 > 1) { datos[k + 3] = 0; continue; }
+    const z = Math.sqrt(1 - r2);
+    // (la luz del sol sobre la esfera: el terminador va de un borde al otro con la fase)
+    const ang = Math.acos(1 - 2 * fase), lx = (crece ? -1 : 1) * Math.sin(ang), lz = -Math.cos(ang); // (el disco se ve reflejado: creciente, iluminada a la derecha)
+    const luz = Math.max(0, Math.min(1, (x * lx + z * lz) * 6 + 0.5));
+    const mar = (Math.sin(x * 5.1 + 1.3) * Math.cos(y * 4.3 - 0.4) + Math.sin(x * 9.7 - y * 7.9)) * 0.08 + rnd(i >> 2, j >> 2) * 0.06;
+    const c = Math.round(255 * Math.max(0.06, (0.86 - mar) * (0.1 + 0.9 * luz)));
+    datos[k] = c; datos[k + 1] = c; datos[k + 2] = Math.min(255, c + 6); datos[k + 3] = Math.round(255 * Math.min(1, (1 - r2) * 40));
+  }
+  const t = new Texture(device, { width: n, height: n, mipmaps: true, addressU: ADDRESS_CLAMP_TO_EDGE, addressV: ADDRESS_CLAMP_TO_EDGE, name: 'luna' });
+  t.lock().set(datos); t.unlock(); return t;
+}
+
 const mezcla = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
 const mezclaColor = (c, a, b, t) => { t = Math.max(0, Math.min(1, t)); c.set(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t); return c; };
 
@@ -58,9 +97,28 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   let [hora, desfase, diaSemana] = horaEspana(ahora);
   const inicio = q.get('hora');
   if (inicio) { const [h, m] = inicio.split(':').map(Number); hora = (h || 0) + (m || 0) / 60; }
-  const ritmo = parseFloat(q.get('ritmo') ?? (inicio ? '0' : '0.5')); // (minutos del juego por segundo de verdad)
+  const ritmo = parseFloat(q.get('ritmo') ?? (inicio ? '0' : String(24 * 60 / (3 * 3600)))); // (minutos del juego por segundo de verdad: un día en 3 horas)
   const inicioAno = Date.UTC(ahora.getUTCFullYear(), 0, 0); const diaDelAno = Math.floor((ahora - inicioAno) / 86400000);
-  const estado = { hora, diaSemana, dia: 0, sol: [0, 0], noche: 0 };
+  const estado = { hora, diaSemana, dia: 0, sol: [0, 0], noche: 0, luna: null, clima: { sol: 1, cielo: 1, niebla: 0, gris: 0, texto: '' } };
+  const clima = estado.clima;
+  // la luna: un disco que mira siempre a la cámara, a 900 m en su dirección, sin bruma; su cara, según la fase
+  let lunaE = null, lunaMat = null, lunaFase = -1;
+  const ponerLuna = (luna, E) => {
+    if (!luna || q.get('luna') === '0') return;
+    const ve = luna.alt > -3 && E < 10;
+    if (!lunaE) {
+      if (!ve) return;
+      lunaMat = new StandardMaterial(); lunaMat.diffuse = new Color(0, 0, 0); lunaMat.emissive = new Color(1, 1, 1); lunaMat.useLighting = false; lunaMat.useFog = false;
+      lunaMat.blendType = 2; lunaMat.depthWrite = false; lunaMat.cull = CULLFACE_NONE; // (2: BLEND_NORMAL)
+      lunaE = new Entity('luna'); lunaE.addComponent('render', { type: 'plane', material: lunaMat, castShadows: false, receiveShadows: false }); app.root.addChild(lunaE);
+    }
+    lunaE.enabled = ve; if (!ve) return;
+    const f = Math.round(luna.fase * 40) / 40;
+    if (Math.abs(f - lunaFase) > 0.001) { lunaFase = f; const tx = texturaLuna(app.graphicsDevice, f, luna.crece); lunaMat.emissiveMap?.destroy?.(); lunaMat.emissiveMap = tx; lunaMat.opacityMap = tx; lunaMat.opacityMapChannel = 'a'; }
+    // (de día casi no se ve; al anochecer aparece)
+    lunaMat.emissiveIntensity = mezcla(0.35, 1.6, (2 - E) / 10) * mezcla(1, 0.35, clima.gris); lunaMat.opacity = mezcla(0.25, 1, (4 - E) / 10) * mezcla(1, 0.25, clima.gris); lunaMat.update();
+    lunaE._dir = [Math.sin(luna.az * rad) * Math.cos(luna.alt * rad), Math.sin(luna.alt * rad), -Math.cos(luna.az * rad) * Math.cos(luna.alt * rad)];
+  };
 
   // la pastilla de la hora, arriba en el centro (como los rótulos: docs/estilo.md); tocarla adelanta una hora
   const pastilla = document.createElement('button'); pastilla.id = 'reloj'; pastilla.type = 'button'; pastilla.title = 'La hora del pueblo (T adelanta una hora)';
@@ -77,7 +135,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   const parte = (h) => (h < 6 ? 'madrugada' : h < 12.5 ? 'mañana' : h < 15 ? 'mediodía' : h < 20.5 ? 'tarde' : 'noche');
   const pintarPastilla = () => {
     const h = Math.floor(estado.hora), m = Math.floor((estado.hora - h) * 60);
-    const t = `<b>${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}</b><span class="dia"> · ${DIAS[((estado.diaSemana + estado.dia) % 7 + 7) % 7]}</span> · ${parte(estado.hora)}`; // (en el móvil, sin el día: no cabía)
+    const t = `<b>${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}</b><span class="dia"> · ${DIAS[((estado.diaSemana + estado.dia) % 7 + 7) % 7]}</span> · ${parte(estado.hora)}${clima.texto ? `<span class="dia"> · ${clima.texto}</span>` : ''}`; // (en el móvil, sin el día ni el tiempo: no cabían)
     if (t !== pastilla._t) { pastilla._t = t; pastilla.innerHTML = t; } // (solo si cambia: rehacerlo cada vez dejaba a veces una cifra a medio pintar)
   };
   const adelantar = (horas) => { estado.hora += horas; while (estado.hora >= 24) { estado.hora -= 24; estado.dia++; } while (estado.hora < 0) { estado.hora += 24; estado.dia--; } aplicar(true); };
@@ -140,8 +198,11 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
     const dia = Math.max(0, Math.min(1, (E + 8) / 14)); estado.noche = 1 - dia;
     // (la luz del cielo cae mucho antes que la del sol: a 22°, la de la tarde con la que se ajustó la escena, y con el sol poniéndose, poco más de un cuarto)
     const cielo = Math.max(0, Math.min(1, (E + 6) / 28));
-    // el sol, o de noche la luna (alta, al sur, azulada y floja)
-    const e_ = E > -2 ? Math.max(E, 2) : 55, a_ = E > -2 ? A : 180;
+    // el sol, o de noche la luna desde donde está (sin ella en el cielo, una luz de estrellas, alta y muy floja)
+    const luna = posicionLuna(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate()) + (estado.dia * 24 + estado.hora - desfase) * 3600000);
+    estado.luna = luna;
+    const conLuna = luna.alt > 2;
+    const e_ = E > -2 ? Math.max(E, 2) : conLuna ? luna.alt : 70, a_ = E > -2 ? A : conLuna ? luna.az : 180;
     arriba.set(Math.sin(a_ * rad) * Math.cos(e_ * rad), Math.sin(e_ * rad), -Math.cos(a_ * rad) * Math.cos(e_ * rad)).normalize();
     // (una direccional alumbra a lo largo de su −y: su +y, hacia el sol)
     const eje = new Vec3().cross(Vec3.UP, arriba); const ang = Math.acos(Math.max(-1, Math.min(1, arriba.y))) / rad;
@@ -152,18 +213,24 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
       if (E > -2) {
         if (alto < 0.55) mezclaColor(cSol, calido, tarde, alto / 0.55); else mezclaColor(cSol, tarde, mediodia, (alto - 0.55) / 0.45);
         sol.light.color = cSol; sol.light.intensity = base.luz * mezcla(0.25, 1.05, Math.sqrt(Math.max(0, (E + 2) / 30)));
-      } else { sol.light.color = cSol.set(0.55, 0.65, 0.95); sol.light.intensity = base.luz * 0.06; }
+      } else { sol.light.color = cSol.set(0.55, 0.65, 0.95); sol.light.intensity = base.luz * (conLuna ? (0.02 + 0.07 * luna.fase) * Math.min(1, luna.alt / 15) : 0.015); }
+      sol.light.intensity *= clima.sol; // (las nubes apagan la luz directa: src/tiempo.js)
     }
     if (rebote?.light) {
       const u = sol.up, h = Math.hypot(u.x, u.z) || 1, d = new Vec3(-u.x / h, -0.45, -u.z / h).normalize(), ej = new Vec3().cross(Vec3.UP, d);
       rebote.setRotation(new Quat().setFromAxisAngle(ej.normalize(), Math.acos(d.y) / rad)); rebote.light.intensity = base.rebote * mezcla(0.08, 1, cielo);
     }
     // el cielo y la luz de ambiente, la exposición y la bruma
-    app.scene.skyboxIntensity = base.amb * Math.max(mezcla(0.012, 1, cielo ** 1.2), 0.62 * dentro); // (de noche, 0,025: medido a ojo, el cielo casi negro y la calle a oscuras salvo los faroles)
+    app.scene.skyboxIntensity = base.amb * Math.max(mezcla(0.012, 1, cielo ** 1.2), 0.62 * dentro) * mezcla(1, clima.cielo, 1 - dentro); // (de noche, 0,025: medido a ojo, el cielo casi negro y la calle a oscuras salvo los faroles)
     app.scene.exposure = base.exposicion;
     mezclaColor(cNiebla, [0.06, 0.08, 0.13], E < 8 && E > -8 ? [0.86, 0.68, 0.55] : base.niebla, E < 8 && E > -8 ? 1 - Math.abs(E) / 8 : dia);
     if (E >= 8) cNiebla.set(...base.niebla);
+    // (nublado o con lluvia, la bruma, gris; y más espesa con niebla o lluvia: src/tiempo.js)
+    if (clima.gris > 0) { const g = (cNiebla.r + cNiebla.g + cNiebla.b) / 3; cNiebla.set(mezcla(cNiebla.r, g * 0.92, clima.gris), mezcla(cNiebla.g, g * 0.95, clima.gris), mezcla(cNiebla.b, g, clima.gris)); }
     app.scene.fog.color = cNiebla;
+    app.scene.fog.density = (base.densidad ?? (base.densidad = app.scene.fog.density)) * (1 + clima.niebla * (1 - dentro * 0.8));
+    // la luna en el cielo
+    ponerLuna(luna, E);
     // los faroles: se encienden al anochecer y se apagan al amanecer (con el sol a 4° y más, apagados)
     const luz = Math.max(0, Math.min(1, (4 - E) / 8));
     if (luz > 0) buscarMateriales();
@@ -188,6 +255,10 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
       if (Math.abs(dentro - dentroAplicado) > 0.02 || (quiere !== dentroAplicado && Math.abs(dentro - quiere) < 0.02)) { dentroAplicado = dentro; aplicar(true); }
     }
     aplicar();
+    if (lunaE?.enabled && lunaE._dir) {
+      camE ||= app.root.findByName('camara'); const c = camE?.getPosition();
+      if (c) { const d = lunaE._dir; lunaE.setPosition(c.x + d[0] * 900, c.y + d[1] * 900, c.z + d[2] * 900); lunaE.lookAt(c); lunaE.rotateLocal(90, 0, 0); lunaE.setLocalScale(26, 26, 26); }
+    }
     // (los charcos de luz, rehechos al moverse 40 m)
     if (estado.faroles > 0.01 && (cuenta++ % 30) === 0) {
       camE ||= app.root.findByName('camara'); const c = camE?.getPosition();

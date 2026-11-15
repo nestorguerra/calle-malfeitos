@@ -15,7 +15,7 @@
 // lado, E es subir al coche (src/conducir.js). Las animaciones nuevas: tools/blender/chica_gestos.py.
 import { Asset, Color, Entity, StandardMaterial, Vec3 } from 'playcanvas';
 import { brazoSaludo } from './gestos.js';
-import { montarIA, persona } from './ia.js';
+import { claveGPT, guardarClaveGPT, montarIA, persona } from './ia.js';
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const elegir = (l) => l[Math.floor(Math.random() * l.length)];
@@ -58,7 +58,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   const sitiosIglesia = iglesia ? await fetch(iglesia).then((r) => r.json()).catch(() => null) : null;
   // ---- las animaciones nuevas, a su capa (como estados sueltos, sin transiciones: se entra y se sale a mano)
   const capa = muneco.anim.baseLayer;
-  const CLIPS = { Sentarse: ['sentarse', false], Sentada: ['sentada', true], Levantarse: ['levantarse', false], Bailar: ['bailar', true], Arrodillada: ['arrodillada', true], Tocar: ['tocar', false] };
+  const CLIPS = { Sentarse: ['sentarse', false], Sentada: ['sentada', true], SentadaIglesia: ['sentada_iglesia', true], Levantarse: ['levantarse', false], Bailar: ['bailar', true], Arrodillada: ['arrodillada', true], Tocar: ['tocar', false] };
   await Promise.all(Object.entries(CLIPS).map(([estado, [f, bucle]]) => new Promise((ok) => {
     const a = new Asset('chica_' + f, 'container', { url: glb(carpeta + f + '.glb') });
     a.once('load', () => { try { capa.assignAnimation(estado, pista(a), 1, bucle); } catch (e) { console.warn('acciones:', f, e); } ok(); });
@@ -98,6 +98,11 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     color: var(--cal, #eef0ec); font: 400 15px/1.3 var(--f-display, system-ui, sans-serif); outline: none; }
   #charla .escribe input:focus { border-color: var(--sodio, #ffa94d); }
   #charla .estado-ia { font: 500 11px/1.4 var(--f-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em; color: var(--niebla, #9ba4c8); margin: 0 0 10px; }
+  #charla .clave { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+  #charla .clave[hidden] { display: none; }
+  #charla .clave input { flex: 1; min-width: 0; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--linea, rgba(186, 198, 255, .16)); background: rgba(255, 255, 255, .06); color: var(--cal, #eef0ec); font: 400 14px/1.3 var(--f-mono, ui-monospace, Menlo, monospace); outline: none; }
+  #charla .clave p { flex-basis: 100%; margin: 0; font: 400 11px/1.4 var(--f-mono, ui-monospace, Menlo, monospace); color: var(--niebla, #9ba4c8); }
+  #charla button.usar-gpt { margin-right: auto; border-color: transparent; color: var(--niebla, #9ba4c8); padding-left: 4px; }
   @media (pointer: coarse) { .accion-boton { padding: 15px 22px; font-size: 14px; } #charla button { padding: 12px 18px; font-size: 13px; } }
   @media (max-width: 760px) { #charla { bottom: calc(110px + env(safe-area-inset-bottom, 0px)); } #charla .dice { font-size: 15px; } }`;
   document.head.appendChild(css);
@@ -105,13 +110,31 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   const bPrincipal = boton('accion-principal', ''), bSegunda = boton('accion-segunda', '');
   const bSaludar = boton('accion-saludar', 'Saludar'), bBailar = boton('accion-bailar', 'Bailar');
   const charla = document.createElement('div'); charla.id = 'charla'; charla.hidden = true;
-  charla.innerHTML = '<div class="quien"></div><p class="tu"></p><p class="dice"></p><div class="estado-ia"></div><div class="escribe" hidden><input type="text" maxlength="200" autocomplete="off" aria-label="Lo que le dices"><button type="button" class="decir">Decir</button></div><div class="botones"><button type="button" class="adios"></button><button type="button" class="sigue"></button></div>';
+  charla.innerHTML = '<div class="quien"></div><p class="tu"></p><p class="dice"></p><div class="estado-ia"></div><div class="escribe" hidden><input type="text" maxlength="200" autocomplete="off" aria-label="Lo que le dices"><button type="button" class="decir">Decir</button></div>'
+    + '<div class="clave" hidden><input type="password" autocomplete="off" spellcheck="false" aria-label="Tu clave de OpenAI" placeholder="Tu clave de OpenAI (sk-…)"><button type="button" class="guardar">Guardar</button><p>Se queda solo en este navegador y solo se manda a OpenAI.</p></div>'
+    + '<div class="botones"><button type="button" class="usar-gpt"></button><button type="button" class="adios"></button><button type="button" class="sigue"></button></div>';
   document.body.appendChild(charla);
   const [cQuien, cDice, cAdios, cSigue] = ['.quien', '.dice', '.adios', '.sigue'].map((s) => charla.querySelector(s));
   const [cTu, cEstado, cEscribe, cDecir] = ['.tu', '.estado-ia', '.escribe', '.decir'].map((s) => charla.querySelector(s)), cEntrada = cEscribe.querySelector('input');
+  // (la clave de OpenAI, para que contesten con GPT: la pone el jugador y se queda en su navegador; src/ia.js)
+  const [cClave, cGuardar, cUsarGPT] = ['.clave', '.guardar', '.usar-gpt'].map((s) => charla.querySelector(s)), cClaveEntrada = cClave.querySelector('input');
+  const pintarGPT = () => { cUsarGPT.textContent = claveGPT() ? 'IA: tu GPT · quitar clave' : 'Usar mi clave de GPT'; };
+  cUsarGPT.addEventListener('click', () => {
+    if (claveGPT()) { guardarClaveGPT(''); cEstado.textContent = 'Clave quitada: contesta la IA del navegador.'; pintarGPT(); ia.puede().then((s) => { iaSirve = s; cEscribe.hidden = !iaSirve; }); return; }
+    cClave.hidden = !cClave.hidden; if (!cClave.hidden) cClaveEntrada.focus();
+  });
+  const guardarClave = () => {
+    const k = cClaveEntrada.value.trim(); if (!/^sk-[\w-]{20,}$/.test(k)) { cEstado.textContent = 'Eso no parece una clave de OpenAI (empieza por «sk-»).'; return; }
+    guardarClaveGPT(k); cClaveEntrada.value = ''; cClave.hidden = true; iaSirve = true; cEscribe.hidden = false; pintarGPT();
+    cEstado.textContent = `Guardada en este navegador: ahora contesta ${ia.modelo}.`;
+  };
+  cGuardar.addEventListener('click', guardarClave);
+  cClaveEntrada.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); guardarClave(); } else if (e.key === 'Escape') cClave.hidden = true; });
+  cClaveEntrada.addEventListener('focus', () => { if (document.pointerLockElement) document.exitPointerLock(); });
   cEntrada.placeholder = movil ? 'Escríbele algo…' : 'Escríbele algo… (Intro)';
   // (la IA de los vecinos: solo donde puede ir, src/ia.js; si no, las frases de siempre)
-  const ia = montarIA({ q, movil }); let iaSirve = false; ia.puede().then((s) => { iaSirve = s; });
+  const ia = montarIA({ q, movil }); let iaSirve = false; ia.puede().then((s) => { iaSirve = s; }); pintarGPT();
+  if (q.get('ia') === '0' || q.get('desde') === '388') cUsarGPT.hidden = true;
   cAdios.textContent = movil ? 'Adiós' : 'Adiós (Esc)'; cSigue.textContent = movil ? 'Seguir hablando' : 'Seguir hablando (E)';
   for (const b of [bPrincipal, bSegunda, bSaludar, bBailar, charla]) for (const ev of ['pointerdown', 'pointerup', 'touchstart']) b.addEventListener(ev, (e) => e.stopPropagation());
   // (lo que se escribe no llega al juego: ni andar, ni saltar, ni las teclas de las acciones)
@@ -298,12 +321,15 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     }
     if (est.habla !== v || est.iaTurno !== turno) return;
     cEstado.textContent = ''; const t0 = performance.now();
+    // (si tarda —el servidor de los vecinos, dormido, tarda en despertar la primera vez—, se dice)
+    const tarda = setTimeout(() => { if (est.habla === v && est.iaTurno === turno) cEstado.textContent = 'Pensando… (la primera vez del día tarda un poco)'; }, 4000);
     try {
       const r = await ia.responder({ v, contexto: est.contexto, mensaje: texto, alEscribir: (s) => { if (est.habla === v && est.iaTurno === turno) cDice.textContent = s; } });
       if (est.habla !== v || est.iaTurno !== turno) return;
-      cDice.textContent = r.dice; cSigue.hidden = true; est.iaUsada = true; est.ultimaIA = { dice: r.dice, hace: r.hace, propuesto: r.propuesto, ms: Math.round(performance.now() - t0) };
+      clearTimeout(tarda); cEstado.textContent = '';
+      cDice.textContent = r.dice; cSigue.hidden = true; est.iaUsada = true; est.ultimaIA = { dice: r.dice, hace: r.hace, propuesto: r.propuesto, quien: r.quien, ms: Math.round(performance.now() - t0) };
       hacerIA(v, r.hace);
-    } catch (e) { console.warn('ia:', e); if (est.habla === v && est.iaTurno === turno) { cDice.textContent = viejo; cEstado.textContent = 'El vecino se ha quedado pensando… prueba otra vez.'; } }
+    } catch (e) { clearTimeout(tarda); console.warn('ia:', e); if (est.habla === v && est.iaTurno === turno) { cDice.textContent = viejo; cEstado.textContent = /clave/i.test(String(e?.message)) ? e.message + ' Quítala con «IA: GPT · quitar clave».' : 'El vecino se ha quedado pensando… prueba otra vez.'; } }
   }
   // lo que decide hacer: saludar ya; acompañarla, irse o sentarse, cuando ella lo ha leído (se acaba la charla)
   function hacerIA(v, hace) {
@@ -399,7 +425,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     if (est.t > 0) {
       est.t -= dt;
       if (est.t <= 0) {
-        if (est.modo === 'sentandose') { est.modo = 'sentada'; capa.transition('Sentada', 0.3); ponerBotones(); }
+        if (est.modo === 'sentandose') { est.modo = 'sentada'; capa.transition(est.asiento?.tipo === 'iglesia' ? 'SentadaIglesia' : 'Sentada', 0.4); ponerBotones(); } // (en la iglesia, los pies en el reclinatorio)
         else if (est.modo === 'levantandose') { const v_ = est.vuelta; est.modo = 'pie'; est.asiento = null; capa.transition('Quieto', 0.25); soltar(v_.x, v_.y, v_.z); ponerBotones(); }
         else if (est.modo === 'vela') { capa.transition('Quieto', 0.3); aPie(); }
       }

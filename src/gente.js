@@ -255,6 +255,11 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   const dentroIglesia = (x, z) => iglesiaCentro && Math.hypot(x - iglesiaCentro[0], z - iglesiaCentro[1]) < 17;
 
   // ---- nacer: uno nuevo en un sitio, con lo que va a hacer
+  // dónde van los pies de un vecino sentado: en el clip la cadera queda 26 cm (a la altura de la chica, 1,6 m) por detrás
+  // de los pies, y con los pies en el asiento se sentaba detrás del respaldo, con los muslos dentro de la madera. Ahora, la
+  // cadera a «atras» m por delante del respaldo del sitio (15-11-2026, como la chica: src/acciones.js)
+  const pies = (pi, x, z, mira, cadera = -0.09) => { const k = 0.26 * ((info[pi]?.alto || 1.6) / 1.6) + cadera; return [x + mira[0] * k, z + mira[1] * k]; };
+  const clipMisa = (v) => (v.info.clips || []).includes('sentado_iglesia') ? 'sentado_iglesia' : 'sentado';
   function nacer(pi, x, z, y = null) {
     const v = crear(pi); v.clip = null; v.clipYa = false;
     Object.assign(v, { x, z, y: y ?? suelo(x, z), yaw: Math.random() * Math.PI * 2, estado: 'quieto', ruta: null, k: 0, lado: 0, fin: null, hasta: 0, desvio: 0, ocupado: false, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null, giroCab: 0, quiereIrse: false, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, sombra: undefined, antes: null });
@@ -319,7 +324,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   }
   function sentar(pi, b, s) {
     const tx = -b.mira[1], tz = b.mira[0]; // (a lo largo del banco)
-    const x = b.p[0] + tx * s.u - b.mira[0] * 0.12, z = b.p[2] + tz * s.u - b.mira[1] * 0.12;
+    const [x, z] = pies(pi, b.p[0] + tx * s.u, b.p[2] + tz * s.u, b.mira);
     const v = nacer(pi, x, z, b.p[1] - 0.46); v.yaw = Math.atan2(b.mira[0], b.mira[1]); v.estado = 'sentado'; v.sitio = s; s.quien = v;
     v.hasta = performance.now() / 1000 + azar(60, 400); poner(v, Math.random() < 0.4 ? 'charla_sentado' : 'sentado'); return v;
   }
@@ -375,8 +380,8 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
         if (libres.length && lista.length) {
           const ocultos = inicial ? libres : libres.filter((s) => !enVista(s.asiento[0], 0.3, s.asiento[1]));
           if (ocultos.length && (inicial || Math.random() < 0.5)) {
-            const s = elegir(ocultos), v = nacer(elegir(lista), s.asiento[0] - s.mira[0] * 0.12, s.asiento[1] - s.mira[1] * 0.12, s.asiento[2] - 0.46);
-            v.yaw = Math.atan2(s.mira[0], s.mira[1]); v.estado = 'misa'; v.sitio = s; s.quien = v; poner(v, 'sentado');
+            const s = elegir(ocultos), pi_ = elegir(lista), [x_, z_] = pies(pi_, s.asiento[0], s.asiento[1], s.mira, -0.10), v = nacer(pi_, x_, z_, s.asiento[2] - 0.46);
+            v.yaw = Math.atan2(s.mira[0], s.mira[1]); v.estado = 'misa'; v.sitio = s; s.quien = v; poner(v, clipMisa(v));
           } else {
             const s = elegir(libres), pta = elegir(sitiosIglesia.puertas), v = nacer(elegir(lista), pta.dentro[0], pta.dentro[1], 0);
             v.puntos = [...(pta.via || []), s.pasillo, s.fila]; v.estado = 'andar_directo'; v.sitio = s; s.quien = v;
@@ -578,7 +583,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       mirarChica(v, p, dChica, dt); mover(v, dt); return;
     }
     if (v.estado === 'sentado' || v.estado === 'misa') {
-      if (v.trasSentarse && tt > v.trasSentarse) { v.trasSentarse = 0; poner(v, 'sentado', 0.3); }
+      if (v.trasSentarse && tt > v.trasSentarse) { v.trasSentarse = 0; poner(v, v.estado === 'misa' ? clipMisa(v) : 'sentado', 0.3); }
       if (v.estado === 'sentado' && tt > (v.turno || 0)) { v.turno = tt + azar(6, 20); if (Math.random() < 0.3) poner(v, v.clip === 'sentado' ? 'charla_sentado' : 'sentado', 0.6); }
       if (v.estado === 'sentado' && tt > v.hasta) {
         // se levanta y se va a otro sitio
@@ -626,14 +631,14 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       return;
     }
     if (f.tipo === 'asiento_misa') {
-      const st = f.sitio; v.x = st.asiento[0] - st.mira[0] * 0.12; v.z = st.asiento[1] - st.mira[1] * 0.12; v.y = st.asiento[2] - 0.46;
+      const st = f.sitio; [v.x, v.z] = pies(v.pi, st.asiento[0], st.asiento[1], st.mira, -0.10); v.y = st.asiento[2] - 0.46;
       v.yaw = Math.atan2(st.mira[0], st.mira[1]); v.estado = 'misa'; poner(v, 'sentarse', 0.2); v.trasSentarse = tt + 1.3;
       return;
     }
     if (f.tipo === 'banco') {
       // sentarse: de espaldas al banco, y abajo
       const b = f.banco, s = f.sitio, tx = -b.mira[1], tz = b.mira[0];
-      v.x = b.p[0] + tx * s.u - b.mira[0] * 0.12; v.z = b.p[2] + tz * s.u - b.mira[1] * 0.12; v.y = b.p[1] - 0.46;
+      [v.x, v.z] = pies(v.pi, b.p[0] + tx * s.u, b.p[2] + tz * s.u, b.mira); v.y = b.p[1] - 0.46;
       v.yaw = Math.atan2(b.mira[0], b.mira[1]); v.estado = 'sentado'; v.hasta = tt + azar(60, 300); poner(v, 'sentarse', 0.2); v.trasSentarse = tt + 1.3; v.turno = tt + 6;
       return;
     }
@@ -665,7 +670,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       const v = cerc[k];
       if (!v) { if (c.enabled) c.enabled = false; return; }
       const sentado = v.estado === 'sentado' || v.estado === 'misa';
-      c.setPosition(v.x + (sentado ? Math.sin(v.yaw) * 0.2 : 0), v.y + 0.82, v.z + (sentado ? Math.cos(v.yaw) * 0.2 : 0));
+      c.setPosition(v.x - (sentado ? Math.sin(v.yaw) * 0.12 : 0), v.y + 0.82, v.z - (sentado ? Math.cos(v.yaw) * 0.12 : 0)); // (sentado, entre la cadera y las rodillas: los pies van delante)
       if (!c.enabled) { c.enabled = true; c.rigidbody.teleport(c.getPosition()); }
     });
   }

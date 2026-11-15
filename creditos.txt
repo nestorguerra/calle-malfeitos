@@ -111,6 +111,16 @@ pausa de 4 s, fundidas al principio y al final y en AAC (`tools/canto_iglesia.py
     baja de Hugging Face la primera vez (880 MB);
   - WebLLM (MLC AI, Apache 2.0) — https://github.com/mlc-ai/web-llm, de jsDelivr, versión 0.2.87.
   Todo corre en el navegador del jugador: lo que se escribe no se manda a ningún sitio.
+  - Si el jugador guarda en su navegador su propia clave de OpenAI (el botón «Usar GPT» de la charla), contesta
+    GPT-5.6 Luna por la API de OpenAI: entonces lo que se escribe a los vecinos va a OpenAI, con esa clave. La clave
+    no va en el juego ni en la web publicada.
+
+## El tiempo que hace (Guareña)
+
+- El tiempo de cada hora (nubes, lluvia, nieve, niebla, viento, temperatura): datos de Open-Meteo
+  (https://open-meteo.com), con licencia Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/).
+  Se piden al entrar en el pueblo y cada media hora (`src/tiempo.js`); solo se manda la posición del pueblo.
+- La luna (su sitio y su fase) y las nubes del cielo: hechas aquí (`src/reloj.js`, `src/tiempo.js`).
 
 ## Vecinos y animales (Calle Malfeitos)
 

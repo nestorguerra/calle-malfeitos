@@ -406,7 +406,7 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
       const m = mi.material; if (!m || tintadas.has(m) || !/glass|cristal/i.test(m.name)) continue;
       const ab = mi.aabb, d = m.diffuse, rojo = d.r > 0.6 && d.g < 0.35;
       if (ab.center.y - y0 < 0.8 || ab.halfExtents.y < 0.12 || m.opacity >= 0.5 || rojo) continue;
-      tintadas.add(m); m.opacity = Math.max(0.62, m.opacity); m.diffuse = new Color(0.035, 0.04, 0.045); m.diffuseMap = null; m.update();
+      tintadas.add(m); m.opacity = Math.max(0.82, m.opacity); m.diffuse = new Color(0.03, 0.035, 0.04); m.diffuseMap = null; m.gloss = Math.max(m.gloss || 0, 0.9); m.update(); // (al 62 %, de cerca aún se adivinaban los cuadros del interior; 15-11-2026)
     }
   };
   for (const n of new Set(vida.coches.map((c) => c.tipo))) { const b = modelos.findByName('cerca_' + n); if (b) tintar(b, b.getPosition().y); }

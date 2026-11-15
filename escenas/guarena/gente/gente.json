@@ -12,7 +12,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9000
  },
@@ -29,7 +30,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9623
  },
@@ -46,7 +48,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 7727
  },
@@ -63,7 +66,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9013
  },
@@ -80,7 +84,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9016
  },
@@ -97,7 +102,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9001
  },
@@ -114,7 +120,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9014
  },
@@ -131,7 +138,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9016
  },
@@ -148,7 +156,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9002
  },
@@ -165,7 +174,8 @@
    "sentado",
    "charla_sentado",
    "sentarse",
-   "levantarse"
+   "levantarse",
+   "sentado_iglesia"
   ],
   "caras": 9015
  },
@@ -183,6 +193,7 @@
    "charla_sentado",
    "sentarse",
    "levantarse",
+   "sentado_iglesia",
    "correr"
   ],
   "caras": 7727
@@ -201,6 +212,7 @@
    "charla_sentado",
    "sentarse",
    "levantarse",
+   "sentado_iglesia",
    "correr"
   ],
   "caras": 9013

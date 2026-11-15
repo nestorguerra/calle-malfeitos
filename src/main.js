@@ -19,6 +19,8 @@ import { archivosDe, estadoGuardado, leerArchivo, montarPersonaje } from './pers
 import { montarSonido } from './sonido.js';
 import { montarCanto } from './canto.js';
 import { montarReloj } from './reloj.js';
+import { montarTiempo } from './tiempo.js';
+import { montarSombras } from './sombras.js';
 import { montarGente } from './gente.js';
 import { montarAcciones } from './acciones.js';
 import { bancosSolidos, montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
@@ -87,6 +89,7 @@ const MODELOS = {
 MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guarena.glb', colision: './escenas/guarena/guarena_colision.glb',
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
   aparcados: './escenas/guarena/iglesia_coches.json', // (los coches aparcados en la plaza de la iglesia: src/aparcados.js)
+  iglesiaBancos: './escenas/guarena/iglesia_bancos.json', // (sus bancos de forja, para sentarse: abajo)
   dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260, // (el interior de la iglesia, aparte: se carga al acercarse)
     canto: './escenas/guarena/canto_iglesia.m4a', planta: './escenas/guarena/iglesia_planta.json' }, // (y el canto gregoriano, que suena solo dentro: src/canto.js)
   partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
@@ -926,6 +929,24 @@ app.on('update', (dt) => {
   if (alivio) { alivio *= Math.exp(-dt / 0.08); if (Math.abs(alivio) < 0.003) alivio = 0; muneco.setLocalPosition(0, -1 + alivio, 0); }
   alivioCam = alivio; // (la cámara ya está puesta con la cápsula de antes de lo que se suba ahora: baja lo de antes)
   const pidiendo = performance.now() - pide.t < 120;
+  // (parada y montada en un canto —un bordillo, un peldaño, el umbral de una puerta—, con el suelo de debajo más de 4 cm por
+  // debajo de los pies: se ve flotando. Se aparta del canto hacia el suelo de abajo, 3 cm por fotograma, hasta pisarlo;
+  // 15-11-2026, el usuario: «cuando el personaje está quieto, está como levitando»)
+  if (!andando && !enRuta && !pidiendo && ctrl.enabled && ctrl.rigidbody.linearFactor.x > 0 && (escalon.n = (escalon.n || 0) + 1) % 4 === 0) {
+    const p = ctrl.getPosition(), pies = p.y - 1, sys = app.systems.rigidbody;
+    escalon.a.set(p.x, pies + 0.05, p.z); escalon.b.set(p.x, pies - 0.5, p.z);
+    const bajo = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
+    if (bajo && pies - bajo.point.y > 0.04 && Math.abs(ctrl.rigidbody.linearVelocity.y) < 0.3) {
+      // (hacia dónde está el canto: el lado en que el suelo, a 25 cm, está a la altura de los pies; se va al contrario)
+      let ax = 0, az = 0;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) {
+        escalon.a.set(p.x + dx * 0.25, pies + 0.05, p.z + dz * 0.25); escalon.b.set(escalon.a.x, pies - 0.5, escalon.a.z);
+        const h = sys.raycastFirst(escalon.a, escalon.b, escalon.op); if (h && Math.abs(h.point.y - pies) < 0.03) { ax += dx; az += dz; }
+      }
+      const l = Math.hypot(ax, az);
+      if (l > 0.1) ctrl.rigidbody.teleport(p.x - ax / l * 0.03, p.y, p.z - az / l * 0.03);
+    }
+  }
   if ((!andando && !enRuta && !pidiendo) || !ctrl.enabled) return;
   const v = ctrl.rigidbody.linearVelocity; if (v.y > 1.2) return; // (saltando)
   const p = ctrl.getPosition(), pies = p.y - 1, sys = app.systems.rigidbody, d = escalon.d;
@@ -1019,8 +1040,24 @@ if (escena.vida && q.get('vida') !== '0') {
   if (escena.aparcados && q.get('aparcados') !== '0') { try { aparcar({ app, vida, sitios: await (await fetch(escena.aparcados)).json() }); } catch (e) { console.warn('aparcados:', e); } }
   const materiales = [A.modelo, ...(escena.partes || []).map((_, i) => A['parte' + i])].filter(Boolean).flatMap((a) => a.resource.materials.map((m) => m.resource)).filter(Boolean);
   montarVida({ app, vida, materiales, q });
+  // (los bancos de forja de la plaza de la iglesia, tools/blender/iglesia_plaza.py: a la lista de los de vida.json, para que
+  // la chica y los vecinos se sienten también en ellos; su altura, con un rayo al suelo. 15-11-2026, el usuario: «ya sea
+  // un banco de piedra o de madera que haya por las calles o alrededor de la iglesia»)
+  if (escena.iglesiaBancos && q.get('bancosiglesia') !== '0') {
+    try {
+      const ib = await (await fetch(escena.iglesiaBancos)).json(), sysB = app.systems.rigidbody;
+      for (const b of ib) {
+        const h = sysB?.raycastFirst(new Vec3(b.x, 6, b.z), new Vec3(b.x, -4, b.z));
+        const suelo = h ? (h.point.y > 0.3 ? h.point.y - 0.48 : h.point.y) : 0; // (el rayo da en su colisión, de 48 cm, o en el suelo)
+        vida.bancos.push({ p: [b.x, suelo + 0.46, b.z], mira: [b.dx, b.dz], largo: b.largo, iglesia: true });
+      }
+      tiempos.bancos_iglesia = ib.length;
+    } catch (e) { console.warn('bancos de la iglesia:', e); }
+  }
   tiempos.bancos_solidos = bancosSolidos({ app, vida, q }); // (los bancos que no tenían colisión: src/vida.js)
   if (escena.reloj && q.get('reloj') !== '0') { try { reloj = montarReloj({ app, sol, rebote, post, escena, q, vida, hud: null, interior: escena.dentro?.planta || null }); } catch (e) { console.warn('reloj:', e); } }
+  // (el tiempo de verdad en Guareña, de Open-Meteo: nubes, lluvia, niebla; src/tiempo.js)
+  if (reloj) { try { const ti = montarTiempo({ app, reloj, camara, q, movil }); if (window.foto) window.foto.tiempo = ti; else trasListo.then(() => { if (window.foto) window.foto.tiempo = ti; }); } catch (e) { console.warn('tiempo:', e); } }
   if (escena.vecinos) montarVecinos({ app, vida, carpeta: escena.vecinos, glb, chica: ctrl, q }).then((v) => { if (window.foto) window.foto.vecinos = v; });
   if (escena.sonidos) sonido = montarSonido({ app, camara, ctrl, muneco, carpeta: escena.sonidos, vida, suelo: () => rayo.ultimaY, viento, q, despues: trasListo });
   if (sonido && escena.dentro?.canto) canto = montarCanto({ app, sonido, ctrl, url: escena.dentro.canto, planta: escena.dentro.planta, q });
@@ -1039,6 +1076,8 @@ if (escena.vida && q.get('vida') !== '0') {
     // y lo que puede hacer la chica con ella y con el pueblo: sentarse, hablar, saludar, bailar, arrodillarse, encender una vela (src/acciones.js)
     .then(() => (chica ? montarAcciones({ app, q, ctrl, muneco, tpc, carpeta: escena.chica, glb, pista, movil, vida, gente: window.foto?.gente, iglesia: escena.iglesiaSitios,
       conducir: () => window.foto?.conducir?.estado?.(), reloj }) : null)).then((a) => { if (window.foto) window.foto.acciones = a; }).catch((e) => console.warn('acciones:', e));
+  // (la sombra de contacto bajo los pies de la chica y de los vecinos de cerca: src/sombras.js)
+  if (modelo) { try { montarSombras({ app, muneco, ctrl, camara, gente: () => window.foto?.gente, reloj, q }); } catch (e) { console.warn('sombras de contacto:', e); } }
 }
 
 // ---- Medida: los tiempos de cada fotograma, y una ruta andada sin teclado (para el Chrome sin ventana)

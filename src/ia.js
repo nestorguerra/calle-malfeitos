@@ -9,7 +9,25 @@
 // - Cada vecino tiene su nombre, su edad, lo que estaba haciendo, dónde y a qué hora, y se acuerda de la charla. Contesta
 //   en una o dos frases y elige qué hace (lo cumple src/gente.js): nada, saludar, acompañarla un rato, irse o sentarse.
 //   La respuesta va con una gramática JSON (la de WebLLM), así que siempre trae las dos cosas bien escritas.
+// - Con GPT (15-11-2026; el usuario: «te voy a dar una API key para que utilices el modelo de GPT, el de Luna alto… para
+//   mantener conversaciones coherentes y comportamientos coherentes»): si en este navegador se ha guardado una clave de
+//   OpenAI (el botón «Usar GPT» de la charla, src/acciones.js), contesta GPT-5.6 Luna por la API de Respuestas de
+//   OpenAI, con el razonamiento «alto» y la respuesta en un esquema JSON estricto. La clave se guarda solo en este
+//   navegador (localStorage) y solo se manda a api.openai.com: no va en el código ni en la web publicada, que cualquiera
+//   puede leer. ?iamodelo= y ?iaesfuerzo= (minimal, low, medium, high) los cambian. Sin clave, o si OpenAI falla, la IA
+//   del navegador de siempre.
+// - Para todos, por defecto (15-11-2026; el usuario: «que se quede guardado para siempre, aunque le pase el enlace a otra
+//   persona»): GPT a través del servidor de 388 Pueblos en Render (/api/vecinos, en el repositorio 388-pueblos). La clave
+//   va allí, en su panel, y no en esta web; el servidor monta las instrucciones del vecino con los datos que se le
+//   mandan (quién es, dónde está, la hora, la charla de antes y lo que le dice la chica) y contesta lo que dice y lo que
+//   hace. Va también en el móvil, que no tiene que bajar nada. Al cargar se le da un toque, que en el plan gratis de
+//   Render se duerme y tarda en despertar. Si no tiene clave o falla, la IA del navegador (o, en el móvil, las frases de
+//   siempre). ?iaproxy=<url> lo cambia y ?iaproxy=0 lo quita.
 const WEBLLM = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.87/+esm';
+const OPENAI = 'https://api.openai.com/v1/responses', CLAVE = 'vecinos_openai_clave';
+const SERVIDOR = 'https://three88-pueblos.onrender.com/api/vecinos';
+export const claveGPT = () => { try { return localStorage.getItem(CLAVE) || ''; } catch (e) { return ''; } };
+export const guardarClaveGPT = (k) => { try { if (k) localStorage.setItem(CLAVE, k.trim()); else localStorage.removeItem(CLAVE); } catch (e) { /* (sin almacén: solo esta vez) */ } };
 export const MODELO = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
 export const HACE = ['nada', 'saludar', 'acompanar', 'irse', 'sentarse'];
 const ESQUEMA = JSON.stringify({
@@ -105,10 +123,51 @@ function coherente(hace, dice, it) {
   return hace;
 }
 
+// una respuesta de GPT por la API de Respuestas, escribiéndose mientras llega (eventos «response.output_text.delta»)
+async function preguntarGPT({ clave, modelo, esfuerzo, mensajes, alTexto }) {
+  const r = await fetch(OPENAI, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clave}` },
+    body: JSON.stringify({
+      model: modelo, stream: true, max_output_tokens: esfuerzo === 'high' ? 2500 : 900, reasoning: { effort: esfuerzo }, store: false,
+      input: mensajes.map((m) => ({ role: m.role, content: m.content })),
+      text: { format: { type: 'json_schema', name: 'respuesta_vecino', strict: true, schema: { type: 'object', additionalProperties: false, properties: { dice: { type: 'string' }, hace: { type: 'string', enum: HACE } }, required: ['dice', 'hace'] } } },
+    }),
+  });
+  if (!r.ok) { let m = ''; try { m = (await r.json())?.error?.message || ''; } catch (e) { /* */ } const err = new Error(`OpenAI ${r.status}${m ? ': ' + m : ''}`); err.estado = r.status; throw err; }
+  const lector = r.body.getReader(), dec = new TextDecoder(); let resto = '', todo = '';
+  for (;;) {
+    const { value, done } = await lector.read(); if (done) break;
+    resto += dec.decode(value, { stream: true }); const lineas = resto.split('\n'); resto = lineas.pop();
+    for (const l of lineas) {
+      if (!l.startsWith('data:')) continue; const d = l.slice(5).trim(); if (!d || d === '[DONE]') continue;
+      let ev = null; try { ev = JSON.parse(d); } catch (e) { continue; }
+      if (ev.type === 'response.output_text.delta' && ev.delta) { todo += ev.delta; alTexto?.(todo); }
+      else if (ev.type === 'response.failed' || ev.type === 'error') throw new Error(ev.error?.message || ev.response?.error?.message || 'OpenAI: fallo');
+    }
+  }
+  return todo;
+}
+
+// una respuesta del servidor de 388 (/api/vecinos): {dice, hace}; 503 si allí no hay clave
+async function preguntarServidor(url, datos) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 60000);
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos), signal: ctl.signal });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(`vecinos ${r.status}${j.error ? ': ' + j.error : ''}`); e.estado = r.status; throw e; }
+    return j;
+  } finally { clearTimeout(t); }
+}
+
 export function montarIA({ q, movil }) {
-  const apagada = q.get('ia') === '0' || (movil && q.get('ia') !== '1');
-  let motor = null, cargando = null, progreso = 0, aviso = '', fallo = null, sirve = null;
+  const servidor = q.get('iaproxy') === '0' || q.get('ia') === '0' ? null : (q.get('iaproxy') || SERVIDOR);
+  let servidorVivo = null; // (false: no tiene clave, no se insiste)
+  if (servidor) fetch(servidor.replace(/\/vecinos$/, '/online'), { cache: 'no-store' }).catch(() => {}); // (el toque para despertarlo)
+  const apagada = q.get('ia') === '0' || (movil && q.get('ia') !== '1' && !claveGPT() && !servidor);
+  const MODELO_GPT = q.get('iamodelo') || 'gpt-5.6-luna', ESFUERZO = ({ alto: 'high', medio: 'medium', bajo: 'low', minimo: 'minimal' })[q.get('iaesfuerzo')] || q.get('iaesfuerzo') || 'high';
+  let motor = null, cargando = null, progreso = 0, aviso = '', fallo = null, sirve = null, ultimoFalloGPT = null;
   async function puede() {
+    if ((claveGPT() || (servidor && servidorVivo !== false)) && q.get('ia') !== '0') return true;   // (con GPT basta la conexión)
     if (apagada || !navigator.gpu) return false;
     if (sirve !== null) return sirve;
     try { const a = await navigator.gpu.requestAdapter(); sirve = !!a && a.features.has('shader-f16'); } catch (e) { sirve = false; }
@@ -116,6 +175,7 @@ export function montarIA({ q, movil }) {
   }
   function preparar(alAvanzar) {
     if (motor) return Promise.resolve(motor);
+    if (movil && q.get('ia') !== '1') return Promise.reject(new Error('En el móvil no se baja la IA del navegador.'));   // (880 MB y la memoria justa)
     if (cargando) return cargando;
     fallo = null;
     cargando = (async () => {
@@ -132,19 +192,39 @@ export function montarIA({ q, movil }) {
     const c = { cuando: cuandoTexto(contexto.hora, contexto.dia), donde: contexto.donde, haciendo: haciendoTexto(v, !p.hombre), lugares: contexto.lugares || '' };
     const it = intento(mensaje);
     const mensajes = [{ role: 'system', content: sistema(p, c) }, ...ejemplos(p), ...p.historial.slice(-8), { role: 'user', content: it ? `${mensaje} [${it.nota}]` : mensaje }];
-    const m = await preparar();
-    let todo = '';
-    const flujo = await m.chat.completions.create({ messages: mensajes, temperature: 0.7, top_p: 0.9, max_tokens: 140, stream: true, response_format: { type: 'json_object', schema: ESQUEMA } });
-    for await (const trozo of flujo) {
-      todo += trozo.choices?.[0]?.delta?.content || '';
-      const d = /"dice"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(todo);
-      if (d && alEscribir) alEscribir(desescapar(d[1]));
+    let todo = '', quien = 'navegador';
+    const escribe = (s) => { const d = /"dice"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(s); if (d && alEscribir) alEscribir(desescapar(d[1])); };
+    const clave = claveGPT();
+    if (clave) {
+      // (con GPT, sin los ejemplos: no le hacen falta, y el sistema le pide lo mismo)
+      try { todo = await preguntarGPT({ clave, modelo: MODELO_GPT, esfuerzo: ESFUERZO, mensajes: [mensajes[0], ...p.historial.slice(-12), mensajes[mensajes.length - 1]], alTexto: escribe }); quien = 'gpt'; }
+      catch (e) { ultimoFalloGPT = String(e); console.warn('ia (GPT):', e); if (e.estado === 401) throw new Error('La clave de OpenAI no vale.'); }
+    }
+    if (quien !== 'gpt' && servidor && servidorVivo !== false) {
+      // (el servidor de 388, con su clave: el historial va en claro, sin las notas, y él monta las instrucciones)
+      try {
+        const r = await preguntarServidor(servidor, { persona: { nombre: p.nombre, edad: p.edad, tipo: p.tipo, hombre: p.hombre, oficio: p.oficio }, contexto: c,
+          historial: p.historial.slice(-12).map((m) => ({ role: m.role, content: m.role === 'assistant' ? (() => { try { return JSON.parse(m.content).dice; } catch (e) { return m.content; } })() : m.content })),
+          mensaje: it ? `${mensaje} [${it.nota}]` : mensaje });
+        todo = JSON.stringify({ dice: r.dice, hace: r.hace }); escribe(todo); quien = 'servidor'; servidorVivo = true;
+      } catch (e) {
+        ultimoFalloGPT = String(e); console.warn('ia (servidor):', e);
+        if (e.estado === 503) servidorVivo = false;   // (allí no hay clave: la IA del navegador)
+        else if (!motor) throw new Error('Los vecinos no contestan ahora.');   // (sin la del navegador ya despierta, no se baja ahora sin avisar)
+      }
+    }
+    if (quien !== 'gpt' && quien !== 'servidor') {
+      const m = await preparar();
+      const flujo = await m.chat.completions.create({ messages: mensajes, temperature: 0.7, top_p: 0.9, max_tokens: 140, stream: true, response_format: { type: 'json_object', schema: ESQUEMA } });
+      for await (const trozo of flujo) { todo += trozo.choices?.[0]?.delta?.content || ''; escribe(todo); }
     }
     let r = null; try { r = JSON.parse(todo); } catch (e) { const d = /"dice"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(todo); r = { dice: d ? desescapar(d[1]) : '…', hace: 'nada' }; }
     const dice = String(r.dice || '').trim() || '…', propuesto = HACE.includes(r.hace) ? r.hace : 'nada', hace = coherente(propuesto, dice, it);
     p.historial.push({ role: 'user', content: mensaje }, { role: 'assistant', content: JSON.stringify({ dice, hace: hace === 'despedirse' ? 'nada' : hace }) });
-    return { dice, hace, propuesto };
+    return { dice, hace, propuesto, quien };
   }
-  return { puede, preparar, responder, persona, estado: () => ({ apagada, listo: !!motor, cargando: !!cargando && !motor, progreso, aviso, fallo: fallo ? String(fallo) : null }) };
+  return { puede, preparar, responder, persona, gpt: () => !!claveGPT(), modelo: MODELO_GPT, esfuerzo: ESFUERZO,
+    servidor: () => (servidor && servidorVivo !== false ? servidor : null),
+    estado: () => ({ apagada, listo: !!motor || !!claveGPT() || !!(servidor && servidorVivo !== false), gpt: !!claveGPT(), servidor: servidor && servidorVivo !== false ? servidor : null, cargando: !!cargando && !motor, progreso, aviso, fallo: fallo ? String(fallo) : null, falloGPT: ultimoFalloGPT }) };
 }
 const desescapar = (s) => { try { return JSON.parse('"' + s.replace(/\\$/, '') + '"'); } catch (e) { return s.replace(/\\n/g, ' ').replace(/\\"/g, '"'); } };
