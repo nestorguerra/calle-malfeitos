@@ -16,7 +16,7 @@
 //   y del coche, y los más cercanos llevan una cápsula para que la chica no los atraviese.
 // Para las pruebas y para hablar con ellos (src/acciones.js): window.foto.gente. ?gente=0, sin gente; ?gente=2, el doble;
 // ?gentetope=, ?genteradio=.
-import { Asset, BLEND_NONE, Entity, Quat, Vec3 } from 'playcanvas';
+import { Asset, BLEND_NONE, Color, Entity, Quat, StandardMaterial, Vec3 } from 'playcanvas';
 import { brazoSaludo } from './gestos.js';
 
 export const VECINOS = 6665; // (INE, padrón de 2024)
@@ -153,7 +153,16 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     }
     return null;
   }
-  const carril = (i, lado, o = [0, 0]) => { const d = lado ? -OF[1][i] : OF[0][i]; o[0] = X[i] + NX[i] * d; o[1] = Z[i] + NZ[i] * d; return o; };
+  // (el sitio de la acera de un punto de la calle; la primera vez que se usa, con la pared medida de verdad: un rayo desde el
+  // eje hacia ese lado, a 1,5 m del suelo (por encima de bolardos, bancos y jardineras). Donde el plano de calles no sabe a
+  // qué distancia está la pared, la acera salía de los puntos de al lado y a veces caía dentro de una casa)
+  const medida = new Uint8Array(n * 2), va3 = new Vec3(), vb3 = new Vec3();
+  const medir = (i, lado) => {
+    medida[i * 2 + lado] = 1;
+    const sg = lado ? -1 : 1, o = OF[lado][i], h = app.systems.rigidbody?.raycastFirst(va3.set(X[i], 1.66, Z[i]), vb3.set(X[i] + NX[i] * sg * (o + 0.45), 1.66, Z[i] + NZ[i] * sg * (o + 0.45)), soloParedes);
+    if (h) OF[lado][i] = Math.max(0.25, Math.min(o, Math.hypot(h.point.x - X[i], h.point.z - Z[i]) - 0.45));
+  };
+  const carril = (i, lado, o = [0, 0]) => { if (!medida[i * 2 + lado]) medir(i, lado); const d = lado ? -OF[1][i] : OF[0][i]; o[0] = X[i] + NX[i] * d; o[1] = Z[i] + NZ[i] * d; return o; };
   const ladoDe = (i, x, z) => ((x - X[i]) * NX[i] + (z - Z[i]) * NZ[i] >= 0 ? 0 : 1);
   // un punto al azar en la explanada de una plaza, a la altura del punto i (de bordillo a bordillo, con un metro de margen)
   // ---- si se puede ir en línea recta de un punto a otro, a la altura de la cintura: sin una pared ni un coche en medio
@@ -232,17 +241,36 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   const sillas = (vida.sillas || []).map((s) => ({ ...s, quien: null }));
   const asientosIglesia = (sitiosIglesia?.bancos || []).map((s) => ({ ...s, quien: null }));
   const tiendas = vida.tiendas || [], portales = vida.portales || [];
+  // (las puertas, en una rejilla de 20 m, para buscar las de cerca de la chica: de dónde sale alguien de casa)
+  const rejPuertas = new Map();
+  for (const t of portales) { const k = clave(Math.floor(t.p[0] / 20), Math.floor(t.p[2] / 20)); let l = rejPuertas.get(k); if (!l) rejPuertas.set(k, (l = [])); l.push(t); }
+  const puertaCerca = (x, z, dmin, dmax) => {
+    const c = []; for (let a = Math.floor((x - dmax) / 20); a <= Math.floor((x + dmax) / 20); a++) for (let b = Math.floor((z - dmax) / 20); b <= Math.floor((z + dmax) / 20); b++) for (const t of rejPuertas.get(clave(a, b)) || []) { const d = Math.hypot(t.p[0] - x, t.p[2] - z); if (d > dmin && d < dmax) c.push(t); }
+    for (let k = 0; k < 8 && c.length; k++) {
+      const t = c.splice(Math.floor(Math.random() * c.length), 1)[0], fx = t.p[0] + t.n[0] * 0.6, fz = t.p[2] + t.n[1] * 0.6;
+      if (abiertas.some((d) => d.pt === t) || dentroIglesia(fx, fz) || !libreDeCoches(fx, fz, 0.4) || !llegada(t)) continue;
+      if (gente.some((v) => Math.abs(v.x - fx) < 1.2 && Math.abs(v.z - fz) < 1.2)) continue;
+      return t;
+    }
+    return null;
+  };
   const plazasNodos = []; for (let i = 0; i < n; i++) if (PLAZA[i]) plazasNodos.push(i);
   const vecinosQueAndan = () => gente.filter((v) => v.estado === 'andar').length;
 
   const cam = () => camara.getPosition(), yo = () => chica.getPosition();
+  // (si se le ve, aunque sea un poco: la cabeza, la cintura o los pies dentro de la vista y sin una casa delante. Con un solo
+  // rayo a la cabeza, un balcón, una farola o un árbol en medio daban por tapado a alguien que se veía entero, y aparecía o
+  // desaparecía delante de la chica, junto a una pared: «la gente sale de las paredes y de los edificios», 15-11-2026)
   const enVista = (x, y, z) => {
-    va.set(x, y + 1.2, z); const c = cam();
+    const c = cam();
     if (Math.hypot(x - c.x, z - c.z) > 110) return false;
-    if (!camara.camera.frustum.containsPoint(va)) return false;
-    // (tapado por una casa: el rayo de la cámara a la cabeza choca antes con algo)
-    const h = app.systems.rigidbody.raycastFirst(c, va);
-    return !(h && Math.hypot(h.point.x - x, h.point.z - z) > 1.5 && !h.entity?.tags?.has('gente'));
+    const fr = camara.camera.frustum;
+    if (!fr.containsPoint(va.set(x, y + 1.7, z)) && !fr.containsPoint(va.set(x, y + 0.15, z)) && !fr.containsPoint(va.set(x + 0.4, y + 1, z)) && !fr.containsPoint(va.set(x - 0.4, y + 1, z))) return false;
+    for (const alto of [1.65, 1.0, 0.3]) {
+      const h = app.systems.rigidbody.raycastFirst(c, va.set(x, y + alto, z));
+      if (!(h && Math.hypot(h.point.x - x, h.point.z - z) > 1.5 && !h.entity?.tags?.has('gente'))) return true;
+    }
+    return false;
   };
 
   // la hora, el día y el mes del juego
@@ -262,19 +290,23 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   const clipMisa = (v) => (v.info.clips || []).includes('sentado_iglesia') ? 'sentado_iglesia' : 'sentado';
   function nacer(pi, x, z, y = null) {
     const v = crear(pi); v.clip = null; v.clipYa = false;
-    Object.assign(v, { x, z, y: y ?? suelo(x, z), yaw: Math.random() * Math.PI * 2, estado: 'quieto', ruta: null, k: 0, lado: 0, fin: null, hasta: 0, desvio: 0, ocupado: false, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null, giroCab: 0, quiereIrse: false, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, sombra: undefined, antes: null });
+    Object.assign(v, { x, z, y: y ?? suelo(x, z), yaw: Math.random() * Math.PI * 2, estado: 'quieto', ruta: null, k: 0, lado: 0, fin: null, hasta: 0, desvio: 0, ocupado: false, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null, giroCab: 0, quiereIrse: false, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, sombra: undefined, antes: null, pt: null, puerta: null, fase: 0 });
     v.paso = PASO[v.info.tipo === 'mayor' ? 'pasear' : 'andar'] * azar(0.95, 1.04); v.clipAndar = v.info.tipo === 'mayor' ? 'pasear' : 'andar';
     v.raiz.setPosition(x, v.y, z); gente.push(v); return v;
   }
   function morir(v) {
     if (v.sitio) v.sitio.quien = null;
+    if (v.puerta) { cerrarPuerta(v.puerta); v.puerta = null; }
     v.raiz.enabled = false; POOL[v.pi].push(v);
     const i = gente.indexOf(v); if (i >= 0) gente.splice(i, 1);
     if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); }
   }
   // echar a andar hacia un sitio (x, z), con lo que hace al llegar
   function irA(v, x, z, fin) {
-    const a = nodoCerca(v.x, v.z, 30), b = nodoCerca(x, z, 40);
+    // (si el sitio está cerca y a la vista, sin una pared en medio, derecho a él: por las calles, a veces se daba un rodeo
+    // de cientos de metros para llegar a una puerta que estaba ahí mismo)
+    if (Math.hypot(x - v.x, z - v.z) < 25 && hayPaso(v.x, v.z, x, z, v.y)) { v.ruta = null; v.puntos = null; v.t = 0; v.fin = { x, z, ...fin }; v.estado = 'andar_directo'; poner(v, v.clipAndar); return true; }
+    const a = nodoCerca(v.x, v.z, 30), b = fin?.nodo ?? nodoCerca(x, z, 40);
     const r = caminoEntre(a, b);
     if (!r) return false;
     v.ruta = r; v.k = 0; v.lado = ladoDe(r[0], v.x, v.z); v.fin = { x, z, ...fin }; v.estado = 'andar'; poner(v, v.clipAndar); return true;
@@ -286,15 +318,25 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       const p = elegir(sitiosIglesia.puertas); return [p.fuera[0], p.fuera[1], { tipo: 'iglesia' }];
     }
     const r = Math.random();
-    if (r < 0.32 && tiendas.length) { const t = cercaDe(tiendas, v.x, v.z, 40, 260); if (t) return [t.p[0] + t.n[0] * 0.6, t.p[2] + t.n[1] * 0.6, { tipo: 'tienda', mira: [-t.n[0], -t.n[1]] }]; }
-    if (r < 0.7 && portales.length) { const t = cercaDe(portales, v.x, v.z, 30, 220); if (t) return [t.p[0] + t.n[0] * 0.5, t.p[2] + t.n[1] * 0.5, { tipo: 'portal', mira: [-t.n[0], -t.n[1]] }]; }
+    if (r < 0.32 && tiendas.length) { const t = cercaDe(tiendas, v.x, v.z, 40, 260, llegada); if (t) return [t.p[0] + t.n[0] * 0.6, t.p[2] + t.n[1] * 0.6, { tipo: 'tienda', mira: [-t.n[0], -t.n[1]], pt: t, nodo: t._nodo }]; }
+    if (r < 0.7 && portales.length) { const t = cercaDe(portales, v.x, v.z, 30, 220, llegada); if (t) return [t.p[0] + t.n[0] * 0.5, t.p[2] + t.n[1] * 0.5, { tipo: 'portal', mira: [-t.n[0], -t.n[1]], pt: t, nodo: t._nodo }]; }
     if (plazasNodos.length && Math.random() < 0.6) { const j = cercaNodo(plazasNodos, v.x, v.z, 40, 300); if (j >= 0) { const c = enExplanada(j); return [c[0], c[1], { tipo: 'paseo' }]; } } // (cruzando la plaza)
     const j = Math.floor(Math.random() * n); if (Math.hypot(X[j] - v.x, Z[j] - v.z) < 300) { const c = carril(j, 0); return [c[0], c[1], { tipo: 'paseo' }]; }
     return null;
   }
-  const cercaDe = (lista, x, z, dmin, dmax) => {
-    for (let t = 0; t < 12; t++) { const s = elegir(lista), d = Math.hypot(s.p[0] - x, s.p[2] - z); if (d > dmin && d < dmax) return s; }
+  const cercaDe = (lista, x, z, dmin, dmax, f = null) => {
+    for (let t = 0; t < 12; t++) { const s = elegir(lista), d = Math.hypot(s.p[0] - x, s.p[2] - z); if (d > dmin && d < dmax && (!f || f(s))) return s; }
     return null;
+  };
+  // (el punto de la calle desde el que se llega a una puerta: el más cercano con la puerta a la vista, sin una pared en
+  // medio. Antes se iba al punto de calle más cercano, que podía ser el de la calle de detrás de la manzana, y de allí en
+  // línea recta a la puerta: atravesando la casa. Se apunta en la puerta, que no cambia; null si no hay ninguno a 15 m)
+  const llegada = (t) => {
+    if (t._nodo !== undefined) return t._nodo !== null;
+    const fx = t.p[0] + t.n[0] * 0.6, fz = t.p[2] + t.n[1] * 0.6, c = [0, 0];
+    t._nodo = null; let dm = 15;
+    cerca(fx, fz, 15, (j) => { const d = Math.hypot(X[j] - fx, Z[j] - fz); if (d >= dm) return; carril(j, ladoDe(j, fx, fz), c); if (hayPaso(c[0], c[1], fx, fz, t.p[1]) && hayPaso(X[j], Z[j], c[0], c[1], t.p[1])) { dm = d; t._nodo = j; } });
+    return t._nodo !== null;
   };
   const cercaNodo = (lista, x, z, dmin, dmax) => {
     for (let t = 0; t < 12; t++) { const s = elegir(lista), d = Math.hypot(X[s] - x, Z[s] - z); if (d > dmin && d < dmax) return s; }
@@ -426,6 +468,11 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       const s = sitioOculto(inicial ? 5 : 22, dmax);
       if (s) { const N_ = Math.random() < 0.65 ? 2 : 3, tipos = Array.from({ length: N_ }, (_, k) => (k === 0 ? tipo : TIPOS[pesar(mezcla.map((m, i) => (i === 3 ? 0 : m)))])); nuevoCorro(s.i, tipos); return; }
     }
+    // salir de casa por la puerta, cerca de la chica (de día y a la tarde: de madrugada, casi nadie)
+    if (!inicial && q.get('puertas') !== '0' && tipo !== 'nino' && Math.random() < (oscuro ? 0.15 : 0.4)) {
+      const pt = puertaCerca(p.x, p.z, 8, 45);
+      if (pt) { salirPorPuerta(elegir(lista), pt); return; }
+    }
     // andar: de dos en dos alguna vez (una pareja, una madre con su niño)
     const s = sitioOculto(dmin, dmax); if (!s) return;
     const v = nuevoAndando(elegir(lista), s.i, s.lado);
@@ -501,9 +548,15 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
         else { girarHacia(v, [ux, uz], dt, 4); mirarChica(v, p, dChica, dt); mover(v, dt); return; }
       } else { v.fin.x = p.x - ux * 1.3; v.fin.z = p.z - uz * 1.3; }
     }
+    if (v.estado === 'entrando' || v.estado === 'saliendo') { porLaPuerta(v, dt, tt); return; }
     if (v.estado === 'andar' || v.estado === 'andar_directo') {
       // el punto al que va: el de la acera del siguiente punto de su calle o, al final, el sitio
       let tx, tz;
+      // (yendo a una puerta por las calles: en cuanto la ve cerca, sin una pared en medio, va derecho)
+      if (v.estado === 'andar' && v.fin?.pt && (v.atajo = (v.atajo || 0) - dt) <= 0) {
+        v.atajo = 0.8;
+        if (Math.hypot(v.fin.x - v.x, v.fin.z - v.z) < 25 && hayPaso(v.x, v.z, v.fin.x, v.fin.z, v.y)) { v.ruta = null; v.estado = 'andar_directo'; v.t = 0; }
+      }
       if (v.estado === 'andar' && v.ruta && v.k < v.ruta.length) {
         const i = v.ruta[v.k];
         if (v.k > 0 && CALLE[i] !== CALLE[v.ruta[v.k - 1]]) v.lado = ladoDe(i, v.x, v.z); // (al cambiar de calle, por la acera de su lado)
@@ -549,9 +602,20 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       let vel = para ? 0 : (conduce && lat ? Math.max(v.paso, 1.8) : frena ? v.paso * 0.35 : v.paso);
       if (v.enFila && v.pareja && Math.hypot(v.pareja.x - v.x, v.pareja.z - v.z) < 0.9) vel *= 0.5; // (en fila, a un paso del de delante)
       if (para) { if (v.clip !== 'quieto') poner(v, 'quieto', 0.25); } else if (v.clip !== v.clipAndar && !(v.estado === 'andar_directo' && v.t > 0)) poner(v, v.clipAndar, 0.25);
+      // (al apartarse, nunca hacia una pared: en las aceras de medio metro, apartarse de la chica, de otro o de un coche le
+      // metía en la casa de al lado, y seguía andando por dentro. 15-11-2026, «la gente sale de las paredes». Un rayo corto
+      // hacia ese lado, cada cuarto de segundo y solo mientras se aparta)
+      if (Math.abs(v.desvio) > 0.05 && (v.paredT = (v.paredT || 0) - dt) <= 0) { v.paredT = 0.25; const sg = Math.sign(v.desvio); v.paredLado = hayPaso(v.x, v.z, v.x + dz * sg * 0.6, v.z - dx * sg * 0.6, v.y) ? 0 : sg; }
+      if (v.paredLado && Math.sign(v.desvio) === v.paredLado) v.desvio = 0;
       const yawQ = Math.atan2(dx, dz); v.yaw += angulo(yawQ - v.yaw) * Math.min(1, dt * 6);
       const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
       v.x += (fx * vel + dz * v.desvio * 0.9 * (vel > 0 ? 1 : 0)) * dt; v.z += (fz * vel - dx * v.desvio * 0.9 * (vel > 0 ? 1 : 0)) * dt;
+      // (y por su acera, nunca más allá de la pared de esa calle, con 35 cm de margen: lo que mide el plano de calles; solo
+      // entre dos puntos de la misma calle, que al cambiar de calle la medida de la otra no vale)
+      if (v.estado === 'andar' && v.ruta && v.k > 0 && v.k < v.ruta.length && !v.rodeo && CALLE[v.ruta[v.k - 1]] === CALLE[v.ruta[v.k]]) {
+        const i = v.ruta[v.k], d = (v.x - X[i]) * NX[i] + (v.z - Z[i]) * NZ[i], m0 = PARED[0][i] - 0.35, m1 = PARED[1][i] - 0.35;
+        if (m0 > 0.3 && d > m0) { v.x -= NX[i] * (d - m0); v.z -= NZ[i] * (d - m0); } else if (m1 > 0.3 && -d > m1) { v.x += NX[i] * (-d - m1); v.z += NZ[i] * (-d - m1); }
+      }
       // la altura: el suelo, cada cuarto de segundo, y suave (los bordillos, las gradas)
       // (un poco por delante de donde pisa, para subir el bordillo o el escalón a tiempo)
       if ((v.alturaT -= dt) <= 0) { v.alturaT = 0.12; v.yObj = suelo(v.x + fx * 0.2, v.z + fz * 0.2, v.y); }
@@ -601,8 +665,10 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       mover(v, dt); return;
     }
     if (v.estado === 'llegado') {
-      // en la puerta: se mete en cuanto no se le ve (buscando las llaves, mirando el escaparate)
-      if (!enVista(v.x, v.y, v.z) || tt > v.hasta + 25) { morir(v); return; }
+      // en la puerta: se mete en cuanto no se le ve (buscando las llaves, mirando el escaparate); si se le sigue viendo, por
+      // la puerta (si la tiene) o, como mucho a los 25 s, cuando se deje de ver
+      if (!enVista(v.x, v.y, v.z)) { morir(v); return; }
+      if (tt > v.hasta + 6 && v.fin?.pt) { entrarPorPuerta(v, v.fin.pt, tt); return; }
       if (v.fin?.mira) girarHacia(v, v.fin.mira, dt, 3);
       mover(v, dt); return;
     }
@@ -642,10 +708,72 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       v.yaw = Math.atan2(b.mira[0], b.mira[1]); v.estado = 'sentado'; v.hasta = tt + azar(60, 300); poner(v, 'sentarse', 0.2); v.trasSentarse = tt + 1.3; v.turno = tt + 6;
       return;
     }
+    if ((f.tipo === 'tienda' || f.tipo === 'portal') && f.pt && Math.hypot(v.x - yo().x, v.z - yo().z) < 80) { entrarPorPuerta(v, f.pt, tt); return; }
     if (f.tipo === 'iglesia' || f.tipo === 'tienda' || f.tipo === 'portal') { v.estado = 'llegado'; v.hasta = tt; poner(v, 'quieto', 0.3); return; }
     v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto');
   }
   function girarHacia(v, m, dt, k) { if (!m) return; const y = Math.atan2(m[0], m[1]); v.yaw += angulo(y - v.yaw) * Math.min(1, dt * k); }
+
+  // ---- las puertas de las casas y las tiendas (15-11-2026; el usuario: «que la gente esté andando por las calles y cuando
+  // entre en un edificio que sea por una puerta siempre. Incluso si pudieran abrir la puerta o entrar en ella de forma
+  // normal»). La puerta de la fachada es parte de la casa y no se mueve; al abrirse, delante de ella crece un hueco oscuro
+  // desde el lado de las bisagras, como una puerta que se abre hacia dentro, y se cierra igual. El vecino entra en él (el
+  // hueco lo tapa al pasar) o sale de él. ?puertas=0, sin puertas (desaparecen sin que se vea, como antes)
+  const PUERTA = { ancho: 0.95, alto: 2.05, abre: 0.65 };
+  const matPuerta = new StandardMaterial(); matPuerta.diffuse = new Color(0, 0, 0); matPuerta.emissive = new Color(0.016, 0.013, 0.011); matPuerta.useLighting = false; matPuerta.useFog = true; matPuerta.update();
+  const abiertas = [];
+  const fachadaDe = (pt, fuera) => [pt.p[0] + pt.n[0] * (fuera - 0.3), pt.p[2] + pt.n[1] * (fuera - 0.3)]; // (el punto de vida.json está a 0,3 m de la fachada)
+  function abrirPuerta(pt) {
+    let d = abiertas.find((x) => x.pt === pt); if (d) { d.quiere = 1; d.usos++; return d; }
+    const e = new Entity('puerta_abierta'); e.addComponent('render', { type: 'box', material: matPuerta, castShadows: false, receiveShadows: false }); app.root.addChild(e);
+    const lado = Math.random() < 0.5 ? 1 : -1, tx = -pt.n[1] * lado, tz = pt.n[0] * lado, [fx, fz] = fachadaDe(pt, 0.025);
+    d = { pt, e, k: 0, quiere: 1, usos: 1, bx: fx - tx * PUERTA.ancho / 2, bz: fz - tz * PUERTA.ancho / 2, tx, tz, yaw: Math.atan2(pt.n[0], pt.n[1]) * 180 / Math.PI };
+    e.setEulerAngles(0, d.yaw, 0); e.setLocalScale(0.001, PUERTA.alto, 0.02); e.setPosition(d.bx, pt.p[1] + PUERTA.alto / 2, d.bz);
+    abiertas.push(d); return d;
+  }
+  const cerrarPuerta = (d) => { if (d && --d.usos <= 0) d.quiere = 0; };
+  app.on('update', (dt) => {
+    for (const d of abiertas.slice()) {
+      d.k = Math.max(0, Math.min(1, d.k + (d.quiere ? 1 : -1) * dt / PUERTA.abre));
+      const w = PUERTA.ancho * d.k * d.k * (3 - 2 * d.k);
+      d.e.setLocalScale(Math.max(0.001, w), PUERTA.alto, 0.02); d.e.setPosition(d.bx + d.tx * w / 2, d.pt.p[1] + PUERTA.alto / 2, d.bz + d.tz * w / 2);
+      if (!d.quiere && d.k === 0) { d.e.destroy(); abiertas.splice(abiertas.indexOf(d), 1); }
+    }
+  });
+  // entrar: se para ante la puerta, la abre, entra y la puerta se cierra detrás
+  function entrarPorPuerta(v, pt, tt) {
+    if (q.get('puertas') === '0') { v.estado = 'llegado'; v.hasta = tt; poner(v, 'quieto', 0.3); return; }
+    v.ruta = null; v.puntos = null; v.estado = 'entrando'; v.pt = pt; v.fase = 0; v.hasta = tt + azar(0.3, 0.9); v.y0 = v.y; poner(v, 'quieto', 0.3);
+  }
+  // salir: aparece detrás de la puerta (la tapa la fachada), la abre, sale y la cierra; luego, a lo suyo
+  function salirPorPuerta(pi, pt) {
+    const [x, z] = fachadaDe(pt, -0.6), v = nacer(pi, x, z, pt.p[1]);
+    v.yaw = Math.atan2(pt.n[0], pt.n[1]); v.estado = 'saliendo'; v.pt = pt; v.fase = 0; v.puerta = abrirPuerta(pt); poner(v, 'quieto'); mover(v);
+    return v;
+  }
+  function porLaPuerta(v, dt, tt) {
+    const pt = v.pt, mira = v.estado === 'entrando' ? [-pt.n[0], -pt.n[1]] : [pt.n[0], pt.n[1]];
+    if (v.estado === 'entrando') {
+      if (v.fase === 0) { girarHacia(v, mira, dt, 6); if (tt > v.hasta) { v.puerta = abrirPuerta(pt); v.fase = 1; } }
+      else if (v.fase === 1) { girarHacia(v, mira, dt, 6); if (v.puerta.k > 0.6) { v.fase = 2; poner(v, v.clipAndar, 0.25); } }
+      else if (v.fase === 2) {
+        // (hacia dentro, despacio; sube a la altura del umbral según se acerca: los portales con peldaños)
+        const [tx, tz] = fachadaDe(pt, -0.75), dx = tx - v.x, dz = tz - v.z, l = Math.hypot(dx, dz), paso = Math.min(l, v.paso * 0.75 * dt);
+        if (l < 0.05) { v.fase = 3; cerrarPuerta(v.puerta); v.puerta = null; v.hasta = tt + PUERTA.abre + 0.15; poner(v, 'quieto', 0.2); }
+        else { v.x += dx / l * paso; v.z += dz / l * paso; const df = (v.x - pt.p[0]) * pt.n[0] + (v.z - pt.p[2]) * pt.n[1] + 0.3; v.y = df > 0.9 ? v.y : df < 0 ? pt.p[1] : pt.p[1] + (v.y0 - pt.p[1]) * df / 0.9; girarHacia(v, mira, dt, 8); }
+      } else if (tt > v.hasta) { morir(v); return; }
+    } else {
+      if (v.fase === 0) { if (v.puerta.k > 0.6) { v.fase = 1; poner(v, v.clipAndar, 0.25); } }
+      else if (v.fase === 1) {
+        const [tx, tz] = fachadaDe(pt, 0.95), dx = tx - v.x, dz = tz - v.z, l = Math.hypot(dx, dz), paso = Math.min(l, v.paso * 0.75 * dt);
+        if (l < 0.05) {
+          cerrarPuerta(v.puerta); v.puerta = null; v.pt = null; v.y = suelo(v.x, v.z, v.y);
+          const d = destino(v); if (!d || !irA(v, d[0], d[1], d[2])) { v.estado = 'quieto'; v.quiereIrse = true; poner(v, 'quieto'); }
+        } else { v.x += dx / l * paso; v.z += dz / l * paso; const df = (v.x - pt.p[0]) * pt.n[0] + (v.z - pt.p[2]) * pt.n[1] + 0.3; if (df > 0.6) v.y += (suelo(v.x, v.z, v.y) - v.y) * Math.min(1, dt * 10); }
+      }
+    }
+    mover(v, dt);
+  }
   function mover(v) { v.raiz.setPosition(v.x, v.y, v.z); v.raiz.setEulerAngles(0, v.yaw * 180 / Math.PI, 0); }
   // la cabeza hacia la chica, si está cerca y delante (los que están parados o sentados)
   function mirarChica(v, p, d, dt) {
@@ -715,8 +843,20 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       v.fin = { x: b.p[0] + tx * s.u + b.mira[0] * 0.45, z: b.p[2] + tz * s.u + b.mira[1] * 0.45, tipo: 'banco', banco: b, sitio: s }; s.quien = v; v.sitio = s;
       v.puntos = null; v.ruta = null; v.t = 0; v.estado = 'andar_directo'; poner(v, v.clipAndar, 0.25); return true;
     },
+    // (para la entrada, src/desde388.js: dos de cada uno, andando junto a «p», para que la gráfica prepare sus materiales
+    // y sus sombras antes de que se vea nada; luego se guardan, y los primeros que salgan ya estarán hechos)
+    calentar: (p) => {
+      const vs = [];
+      listos.forEach((pi, i) => { for (let k = 0; k < 2; k++) { const v = crear(pi); v.raiz.setPosition(p.x + (i % 6) * 0.8, p.y, p.z + Math.floor(i / 6) * 0.8 + k * 3); v.e.anim?.baseLayer?.transition('andar', 0); vs.push(v); } });
+      return () => { for (const v of vs) { v.raiz.enabled = false; POOL[v.pi].push(v); } };
+    },
     nacer: (tipo, x, z) => { const l = deTipo[tipo].filter((i) => ASSETS[i]); const v = nacer(elegir(l), x, z); v.estado = 'quieto'; poner(v, 'quieto'); return v; },
     destino, carril, nodoCerca, camino: caminoEntre, enLaCalle, misa: enMisa, nodos: n,
+    // (para las pruebas de las puertas, tools/prueba_puertas.py: si se ve a alguien, sacar a uno por una puerta de cerca y
+    // mandar a otro a entrar por la suya)
+    seVe: (x, y, z) => enVista(x, y, z), puertas: () => abiertas.map((d) => ({ p: d.pt.p, k: d.k })), _red: { X, Z, VEC, CALLE, OF, PARED, BORDE, n, carril, hayPaso, nombres: C.map((c) => c.nombre) },
+    salirDeCasa: (x, z, dmin = 3, dmax = 30) => { const pt = puertaCerca(x, z, dmin, dmax), l = deTipo.adulto.filter((i) => ASSETS[i]); return pt && l.length ? salirPorPuerta(elegir(l), pt) : null; },
+    entrarEnCasa: (v, x, z, pt0 = null) => { const pt = pt0 || puertaCerca(x, z, 0, 30); if (!pt || !v || !llegada(pt)) return null; v.ocupado = false; const d = [pt.p[0] + pt.n[0] * 0.5, pt.p[2] + pt.n[1] * 0.5]; return irA(v, d[0], d[1], { tipo: 'portal', mira: [-pt.n[0], -pt.n[1]], pt, nodo: pt._nodo }) ? pt : null; },
     // (para las pruebas, tools/prueba_gente.py) empezar de cero con la hora y el sitio de ahora, como al cargar
     reiniciar: () => { for (const v of gente.slice()) morir(v); cuentaGente = 0; ultimaCuenta = -1e9; reloj_ = 0; },
     // si lo que hace cada uno tiene sentido: nadie encima de un coche aparcado, flotando o hundido; y dónde está cada uno,

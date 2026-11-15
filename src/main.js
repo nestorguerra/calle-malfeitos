@@ -1098,7 +1098,10 @@ const NIVELES = [
   (on) => { if (sol.light) sol.light.shadowResolution = on ? 2048 : parseInt(q.get('sres') || '4096', 10); },
   (on) => { if (post?.ssao) post.ssao.scale = on ? 0.35 : AO_ESCALA; },
   null, // (4: la resolución, por debajo de 1×)
-  (on) => { if (sol.light) Object.assign(sol.light, on ? { numCascades: 1, shadowDistance: 45 } : { numCascades: parseInt(q.get('cascadas') || '2', 10), shadowDistance: parseFloat(q.get('sdist') || '70') }); },
+  // (5: la sombra, más corta. Hasta el 15-11-2026 también en una sola cascada; pero cambiar las cascadas rehace los
+  // sombreadores de todos los materiales, y en un portátil normal era un tirón de casi un segundo cada vez que la calidad
+  // bajaba o probaba a subir)
+  (on) => { if (sol.light) sol.light.shadowDistance = on ? 45 : parseFloat(q.get('sdist') || '70'); },
 ];
 // (la resolución que de verdad se dibuja: en una pantalla normal, de 1×, el tope de 1,5× no hace nada)
 const ratio = () => Math.min(device.maxPixelRatio, window.devicePixelRatio || 1);
@@ -1128,8 +1131,18 @@ const subir = () => {
   else if (r < adaptar.max - 0.01) ponerRatio(Math.min(adaptar.max, r + 0.125));
 };
 if (q.get('nivel') || movil) ponerNivel(parseInt(q.get('nivel') || '3', 10));
+// (no mira hasta que el juego se ha asentado: 6 s después de estar listo y, entrando desde la web de 388, después de posarse
+// la cámara. Antes, los fotogramas de la carga y del vuelo de la entrada, lentos por lo que aún se monta, le hacían bajar
+// la calidad nada más entrar, y quitar o poner el multimuestreo obliga a la gráfica a rehacer lo de todos los materiales:
+// otro tirón. 15-11-2026)
+// (entrando desde la web de 388, en cuanto se posa: allí lo de los dos multimuestreos ya está preparado, src/desde388.js)
+let posado = 0;
+const asentado = () => {
+  if (q.get('desde') === '388') { if (!document.documentElement.classList.contains('aterrizado')) return false; posado ||= performance.now(); return performance.now() > posado + 500; }
+  return tiempos.listo !== undefined && performance.now() > t0 + tiempos.listo + 6000;
+};
 app.on('update', (dt) => {
-  if (adaptar.activo) {
+  if (adaptar.activo && asentado()) {
     adaptar.ms.push(dt * 1000); adaptar.t += dt;
     if (adaptar.t > 1.5) {
       // (con la pantalla a 60 Hz cada fotograma tarda 16,7 o 33 ms: la mediana no ve los que se pierden; lo que cuenta es
@@ -1215,6 +1228,10 @@ window.foto = {
   resolucion: () => { const b = app.graphicsDevice.backBufferSize; return [b.x, b.y]; },
   calidad: () => ({ nivel: adaptar.nivel, ratio: ratio(), fps: Math.round(fpsSuave) }),
   zonas: () => zonas && { cargadas: zonas.cargadas(), total: zonas.Z.zonas.length, radio: zonas.radio }, // (la calidad adaptable, para tools/lento.py)
+  // (para la entrada, src/desde388.js: dibujar con o sin multimuestreo, para dejar preparado lo de los dos y que la
+  // calidad adaptable pueda cambiarlo luego sin tirón)
+  muestras: (sin) => { if (post) post.rendering.samples = sin ? 1 : parseInt(q.get('msaa') || '4', 10); },
+  muestrasNormales: () => { if (post) post.rendering.samples = adaptar.nivel >= 1 ? 1 : parseInt(q.get('msaa') || '4', 10); },
 };
 // la memoria de la geometría: PlayCanvas guarda en JavaScript una copia de cada malla además de la que sube a la GPU
 // (para volver a subirla si la GPU la pierde): 173 MB que, con la memoria gráfica, cerraban la página en un móvil. Las
@@ -1226,42 +1243,84 @@ window.foto = {
 // los ~420 MB que aguanta un móvil. Se hace antes de soltar la copia de JavaScript (es de donde se leen). ?compactar=0
 // lo deja como viene del glb. El tono de cal por vértice de las paredes (COLOR_0, ver calle_gris.py: tinte), en 8 bits
 // sin signo normalizados (llega en 32 o en 16 por componente; un tono por cara no pide más)
-function compactar(m) {
+// (la cuenta, aparte y sin nada de fuera, para poder hacerla también en un hilo: compactarEnHilo, abajo)
+function nucleoCompactar(st, out, n, tareas) {
+  const f = new Float32Array(st), u = new Uint32Array(st), u16 = new Uint16Array(st), du = new Uint32Array(out), d8 = new Int8Array(out), du8 = new Uint8Array(out);
+  for (const t of tareas) {
+    if (t.k === 't') {
+      for (let i = 0, a = t.so, a2 = t.o2, b = t.dOff; i < n; i++, a += t.ss, a2 += t.s2, b += t.dStr) {
+        for (let c = 0; c < 4; c++) { const v = c < t.nc ? (t.h ? u16[a2 + c] / 65535 : f[a + c]) : 1; du8[b + c] = Math.max(0, Math.min(255, Math.round(v * 255))); }
+      }
+    } else if (t.k === 'o') {
+      for (let i = 0, a = t.so, b = t.dOff; i < n; i++, a += t.ss, b += t.dStr) {
+        for (let c = 0; c < 4; c++) d8[b + c] = c < t.nc ? Math.max(-127, Math.min(127, Math.round(f[a + c] * 127))) : 0;
+      }
+    } else {
+      for (let i = 0, a = t.so, b = t.dO; i < n; i++, a += t.ss, b += t.dS) for (let c = 0; c < t.w; c++) du[b + c] = u[a + c];
+    }
+  }
+}
+function planCompactar(m) {
   const vb = m.vertexBuffer, st = vb?.storage, els = vb?.format.elements;
-  if (!st || !els.some((e) => (e.name === SEMANTIC_NORMAL || e.name === SEMANTIC_TANGENT) && e.dataType === TYPE_FLOAT32)) return 0;
-  if (els.some((e) => e.offset % 4 || e.stride % 4 || e.asInt)) return 0; // (todo en palabras de 4 bytes, o no se toca)
+  if (!(st instanceof ArrayBuffer) || !els.some((e) => (e.name === SEMANTIC_NORMAL || e.name === SEMANTIC_TANGENT) && e.dataType === TYPE_FLOAT32)) return null;
+  if (els.some((e) => e.offset % 4 || e.stride % 4 || e.asInt)) return null; // (todo en palabras de 4 bytes, o no se toca)
   const ocho = (e) => (e.name === SEMANTIC_NORMAL || e.name === SEMANTIC_TANGENT) && e.dataType === TYPE_FLOAT32;
   const tono = (e) => e.name === SEMANTIC_COLOR && (e.dataType === TYPE_FLOAT32 || e.dataType === TYPE_UINT16);
   const fmt = new VertexFormat(app.graphicsDevice, els.map((e) => ocho(e)
     ? { semantic: e.name, components: 4, type: TYPE_INT8, normalize: true }
     : tono(e) ? { semantic: e.name, components: 4, type: TYPE_UINT8, normalize: true }
     : { semantic: e.name, components: e.numComponents, type: e.dataType, normalize: e.normalize }));
-  const n = vb.numVertices, out = new ArrayBuffer(fmt.size * n);
-  const f = new Float32Array(st), u = new Uint32Array(st), du = new Uint32Array(out), d8 = new Int8Array(out);
-  const u16 = new Uint16Array(st), du8 = new Uint8Array(out);
-  fmt.elements.forEach((d, k) => {
-    const s = els[k], so = s.offset / 4, ss = s.stride / 4;
-    if (tono(s)) {
-      const h = s.dataType === TYPE_UINT16, o2 = s.offset / 2, s2 = s.stride / 2;
-      for (let i = 0, a = so, a2 = o2, b = d.offset; i < n; i++, a += ss, a2 += s2, b += d.stride) {
-        for (let c = 0; c < 4; c++) {
-          const v = c < s.numComponents ? (h ? u16[a2 + c] / 65535 : f[a + c]) : 1;
-          du8[b + c] = Math.max(0, Math.min(255, Math.round(v * 255)));
-        }
-      }
-    } else if (ocho(s)) {
-      for (let i = 0, a = so, b = d.offset; i < n; i++, a += ss, b += d.stride) {
-        for (let c = 0; c < 4; c++) d8[b + c] = c < s.numComponents ? Math.max(-127, Math.min(127, Math.round(f[a + c] * 127))) : 0;
-      }
-    } else {
-      const w = s.size / 4, dO = d.offset / 4, dS = d.stride / 4;
-      for (let i = 0, a = so, b = dO; i < n; i++, a += ss, b += dS) for (let c = 0; c < w; c++) du[b + c] = u[a + c];
-    }
+  const tareas = fmt.elements.map((d, k) => {
+    const s_ = els[k];
+    return { k: tono(s_) ? 't' : ocho(s_) ? 'o' : 'c', so: s_.offset / 4, ss: s_.stride / 4, nc: s_.numComponents, h: s_.dataType === TYPE_UINT16, o2: s_.offset / 2, s2: s_.stride / 2,
+      dOff: d.offset, dStr: d.stride, w: s_.size / 4, dO: d.offset / 4, dS: d.stride / 4 };
   });
-  const antes = st.byteLength;
-  m.vertexBuffer = new VertexBuffer(app.graphicsDevice, fmt, n, { data: out });
-  vb.destroy();
-  return antes - out.byteLength;
+  return { vb, st, fmt, n: vb.numVertices, tareas, tam: fmt.size * vb.numVertices, antes: st.byteLength };
+}
+function ponerCompactada(m, plan, out) {
+  m.vertexBuffer = new VertexBuffer(app.graphicsDevice, plan.fmt, plan.n, { data: out });
+  plan.vb.storage = { byteLength: plan.antes }; plan.vb.destroy(); // (con su tamaño: destroy() lo mira, y en el hilo se pudo quedar sin él)
+  return plan.antes - out.byteLength;
+}
+function compactar(m) {
+  const plan = planCompactar(m); if (!plan) return 0;
+  const out = new ArrayBuffer(plan.tam); nucleoCompactar(plan.st, out, plan.n, plan.tareas);
+  return ponerCompactada(m, plan, out);
+}
+// lo mismo en uno o dos hilos aparte (15-11-2026; el usuario: «algunos usuarios me reportan que al entrar, algunas
+// ocasiones entra con tirones»). Medido con el procesador cuatro veces más lento (un portátil o un móvil normal): en el
+// vuelo de la entrada y los primeros segundos de juego, cada zona que llegaba se compactaba de una vez en el hilo de la
+// página, de 180 a 300 ms sin pintar (compactar: 723 ms de los 13,5 s medidos). Ahora la cuenta va en un hilo, la malla
+// pasa allí sin copiarla y vuelve compactada; la página solo sube el resultado a la gráfica. Si no hay hilos (o no
+// contestan), se hace aquí como antes. ?hilos=0, siempre aquí
+let hilosCompactar = null;
+const pendientesCompactar = new Map(); let idCompactar = 0;
+function hilosListos() {
+  if (hilosCompactar) return hilosCompactar;
+  hilosCompactar = (async () => {
+    if (q.get('hilos') === '0' || typeof Worker === 'undefined') return [];
+    try {
+      const fuente = nucleoCompactar.toString() + '\nonmessage = (e) => { const { id, st, n, tareas, tam } = e.data; const out = new ArrayBuffer(tam); if (st) nucleoCompactar(st, out, n, tareas); postMessage({ id, out }, [out]); };';
+      const url = URL.createObjectURL(new Blob([fuente], { type: 'text/javascript' }));
+      const k = Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 2) - 1));
+      const H = Array.from({ length: k }, () => { const w = new Worker(url); w.onmessage = (e) => { const r = pendientesCompactar.get(e.data.id); pendientesCompactar.delete(e.data.id); r?.(e.data.out); }; return w; });
+      // (antes de mandarles nada de verdad, que contesten: una página que no deja hilos de «blob:» los crea sin quejarse y
+      // luego no los arranca; la malla que se les mandara se perdería)
+      const ok = await Promise.all(H.map((w) => new Promise((r) => { const id = ++idCompactar; pendientesCompactar.set(id, () => r(true)); w.postMessage({ id, st: null, n: 0, tareas: [], tam: 4 }); setTimeout(() => r(false), 3000); })));
+      if (ok.every(Boolean)) return H;
+      H.forEach((w) => w.terminate()); return [];
+    } catch (e) { return []; }
+  })();
+  return hilosCompactar;
+}
+hilosListos();
+async function compactarEnHilo(m) {
+  const H = await hilosListos();
+  const plan = planCompactar(m); if (!plan) return 0;
+  if (!H.length) { const out = new ArrayBuffer(plan.tam); nucleoCompactar(plan.st, out, plan.n, plan.tareas); return ponerCompactada(m, plan, out); }
+  const id = ++idCompactar;
+  const out = await new Promise((r) => { pendientesCompactar.set(id, r); H[id % H.length].postMessage({ id, st: plan.st, n: plan.n, tareas: plan.tareas, tam: plan.tam }, [plan.st]); });
+  return ponerCompactada(m, plan, out);
 }
 if (q.get('compactar') !== '0') {
   const vistas = new Set(); let ahorro = 0;
@@ -1326,8 +1385,9 @@ if (escena.dentro && q.get('dentro') !== '0') {
     for (let k = 0; k < 3; k++) temblor[k] = 0.82 * temblor[k] + 0.18 * (Math.sin(t * (9.1 + k * 1.7) + k * 2.1) * 0.6 + Math.sin(t * (21.3 + k * 3.1) + k) * 0.4 + (Math.random() - 0.5) * 0.9);
     for (const L of llamas) { L.mt.emissiveIntensity = L.base * (1 + (L.halo ? 0.22 : 0.16) * temblor[L.k]); L.mt.update(); }
   });
-  const montar = () => {
+  const montar = async () => {
     if (!cargando || !asset) return; // (se alejó mientras bajaba)
+    const este = asset;
     asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = 8; });
     // (las texturas que ya trae la iglesia de fuera —la sillería, su relieve, la madera de las puertas—, las mismas: el
     // interior usa aquellas y suelta las suyas; si no, en el móvil pasaba del tope de memoria de JavaScript)
@@ -1355,16 +1415,19 @@ if (escena.dentro && q.get('dentro') !== '0') {
       if (/^iglesia_calcos_/.test(mt.name)) { mt.depthWrite = false; mt.update(); }
       if (r) llamas.push({ mt, k: { a: 0, b: 1, c: 2 }[r[2] || 'a'], halo: r[1] === 'resplandor', base: mt.emissiveIntensity });
     });
-    const mod = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true }), vistas = new Set();
+    const mod = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true }), vistas = new Set(), trabajos = [];
     for (const r of mod.findComponents('render')) for (const mi of r.meshInstances) {
       if (sinSombra(mi.material?.name) || /^iglesia_(llama|resplandor|calcos|encaje)/.test(mi.material?.name || '')) mi.castShadow = false;
       if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
-      if (q.get('compactar') !== '0') compactar(mi.mesh);
       // (sin la copia de JavaScript, pero con su tamaño: al soltar el interior, el motor lo lee al destruirlas, y con null
       // daba un error; desde que se suelta al conducir, src/conducir.js, pasa a menudo)
-      if (q.get('soltar') !== '0') { const falsa = (x) => { if (x?.storage) x.storage = { byteLength: x.storage.byteLength }; }; falsa(mi.mesh.vertexBuffer); (mi.mesh.indexBuffer || []).forEach(falsa); }
+      const m_ = mi.mesh, soltar_ = () => { if (q.get('soltar') !== '0') { const falsa = (x) => { if (x?.storage) x.storage = { byteLength: x.storage.byteLength }; }; falsa(m_.vertexBuffer); (m_.indexBuffer || []).forEach(falsa); } };
+      // (compactada en un hilo: era un tirón al acercarse a la iglesia)
+      trabajos.push(q.get('compactar') !== '0' ? compactarEnHilo(m_).then(soltar_) : Promise.resolve(soltar_()));
     }
     for (const t of cambio.keys()) t.destroy();
+    await Promise.all(trabajos);
+    if (asset !== este || !cargando) { mod.destroy(); return; } // (se alejó mientras se compactaba)
     raiz.addChild(mod); ent = mod; cargando = false;
   };
   app.on('update', () => {
@@ -1405,13 +1468,16 @@ if (ZC) {
       const pedida = ya.get(z.clave); ya.delete(z.clave); // (las de la salida, pedidas y leídas mientras llegaba lo demás)
       const asset = await (pedida || traer(z));
       const e = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
-      let sin = 0;
+      let sin = 0; const trabajos = [], vistas = new Set();
       for (const r of e.findComponents('render')) for (const mi of r.meshInstances) {
         const m = porNombre.get(mi.material?.name); if (m) mi.material = m; else sin++;
         if (sinSombra(mi.material?.name)) mi.castShadow = false;
-        if (q.get('compactar') !== '0') compactar(mi.mesh);
-        if (q.get('soltar') !== '0') { falsa(mi.mesh.vertexBuffer); (mi.mesh.indexBuffer || []).forEach(falsa); }
+        if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
+        // (compactada en un hilo aparte, y la zona entra en la escena cuando están todas: ver compactarEnHilo)
+        const m_ = mi.mesh, soltar_ = () => { if (q.get('soltar') !== '0') { falsa(m_.vertexBuffer); (m_.indexBuffer || []).forEach(falsa); } };
+        trabajos.push(q.get('compactar') !== '0' ? compactarEnHilo(m_).then(soltar_) : Promise.resolve(soltar_()));
       }
+      await Promise.all(trabajos);
       if (sin) console.warn(`zona ${z.clave}: ${sin} mallas sin su material en materiales.glb`);
       raiz.addChild(e);
       estado.set(z.clave, { e, asset });

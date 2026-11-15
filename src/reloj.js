@@ -189,6 +189,12 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   const enPlanta = (x, z) => { let d = false; for (let i = 0, j = planta.length - 1; i < planta.length; j = i++) { const [xi, zi] = planta[i], [xj, zj] = planta[j]; if ((zi > z) !== (zj > z) && x < xi + (z - zi) * (xj - xi) / (zj - zi)) d = !d; } return d; };
   const cSol = new Color(), cNiebla = new Color(), arriba = new Vec3(), qr = new Quat();
   let ultimoAplicado = -1;
+  // (la luz del cielo, sin pasar por scene.skyboxIntensity: en PlayCanvas, cada cambio rehace la malla del cielo y obliga a
+  // rehacer los sombreadores de todos los materiales, y aplicar() la cambia hasta 16 veces por segundo al amanecer, al
+  // atardecer y con nubes (el día pasa a 8 minutos por segundo). En el procesador de un portátil normal eran tirones de
+  // 200 a 900 ms; según la hora del juego, sí o no: «algunas ocasiones entra con tirones» (15-11-2026). El motor solo usa
+  // el número como uniforme en cada fotograma, así que basta con dejarlo en su sitio)
+  const luzCielo = (v) => { if ('_skyboxIntensity' in app.scene) app.scene._skyboxIntensity = v; else app.scene.skyboxIntensity = v; };
   function aplicar(forzar = false) {
     if (!forzar && Math.abs(estado.hora - ultimoAplicado) < 1 / 120) return; // (cada medio minuto del juego)
     ultimoAplicado = estado.hora;
@@ -221,7 +227,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
       rebote.setRotation(new Quat().setFromAxisAngle(ej.normalize(), Math.acos(d.y) / rad)); rebote.light.intensity = base.rebote * mezcla(0.08, 1, cielo);
     }
     // el cielo y la luz de ambiente, la exposición y la bruma
-    app.scene.skyboxIntensity = base.amb * Math.max(mezcla(0.012, 1, cielo ** 1.2), 0.62 * dentro) * mezcla(1, clima.cielo, 1 - dentro); // (de noche, 0,025: medido a ojo, el cielo casi negro y la calle a oscuras salvo los faroles)
+    luzCielo(base.amb * Math.max(mezcla(0.012, 1, cielo ** 1.2), 0.62 * dentro) * mezcla(1, clima.cielo, 1 - dentro)); // (de noche, 0,025: medido a ojo, el cielo casi negro y la calle a oscuras salvo los faroles)
     app.scene.exposure = base.exposicion;
     mezclaColor(cNiebla, [0.06, 0.08, 0.13], E < 8 && E > -8 ? [0.86, 0.68, 0.55] : base.niebla, E < 8 && E > -8 ? 1 - Math.abs(E) / 8 : dia);
     if (E >= 8) cNiebla.set(...base.niebla);

@@ -20,6 +20,13 @@
 import { Asset, BUFFER_STATIC, Color, CULLFACE_NONE, Entity, INDEXFORMAT_UINT32, IndexBuffer, KeyboardMouseSource, Quat, SEMANTIC_POSITION, Vec3 } from 'playcanvas';
 
 const RAD = 180 / Math.PI;
+// la conducción fácil (15-11-2026; el usuario: «varios usuarios me han dicho que la conducción es un poco complicada y
+// difícil. Haz que sea más sencillo»): sin tocar la física del coche, como en los juegos de mundo abierto por ciudad: a 40
+// km/h como mucho por el pueblo (12 marcha atrás), un volante más rápido y con más giro, un asistente que lo aparta de las
+// paredes cuando no se gira (y frena solo antes de comerse una), la carrocería que resbala por la pared en vez de quedarse
+// clavada, la marcha atrás antes y más freno de motor al soltar. ?facil=0, como antes
+const FACIL = new URLSearchParams(location.search).get('facil') !== '0';
+const VMAX = FACIL ? 40 / 3.6 : Infinity, VMAX_ATRAS = FACIL ? 12 / 3.6 : Infinity;
 
 // ---- las cajas de los coches: componentes de la malla con 8 vértices y 10 o 12 triángulos y tamaño de coche
 // (soldar: los vértices en el mismo sitio cuentan como uno. En la colisión de la iglesia cada cara de una caja trae los
@@ -118,6 +125,30 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     const c = { e, x: p.x, z: p.z, y0, y1: y0 + H, L, W, dx: ex.x, dz: ex.z, k, hecha: true };
     cajas.push(c); k.caja = c;
   }
+  // (fuera los coches aparcados en medio de una explanada o de un cruce: sin bordillo, pared ni acera a menos de 3 m a
+  // ningún lado, medido con rayos a 6 cm del asfalto, y sin ser de un aparcamiento de verdad —siete coches o más a menos de
+  // 9 m, como el de la plaza de la iglesia o el de filas junto a la avenida—. Eran 13: una fila de seis en mitad de un
+  // cruce, cuatro en una explanada, dos sueltos. 15-11-2026, el usuario: «en algunas calles hay coches parados en mitad
+  // de la calle… que estén aparcados de forma correcta y en sus estacionamientos adecuados». ?enmedio=1, se quedan)
+  if (q.get('enmedio') !== '1') {
+    const sinCoches = { filterCallback: (e_) => e_.name !== 'caja_coche' && e_.name !== 'coche_que_pasa' && e_.name !== 'controlador' && !e_.tags?.has('gente') };
+    const sueltos = [];
+    for (const k of coches.coches) {
+      const c = k.caja; if (!c) continue;
+      if (coches.coches.filter((o) => o !== k && o.caja && Math.hypot(o.caja.x - c.x, o.caja.z - c.z) < 9).length >= 7) continue;
+      const s = sys.raycastFirst(new Vec3(c.x, 3, c.z), new Vec3(c.x, -2, c.z), sinCoches), y = (s ? s.point.y : c.y0) + 0.06;
+      let cerca = false;
+      for (const sg of [1, -1]) for (const u of [-0.3, 0, 0.3]) {
+        if (cerca) break;
+        const ox = c.x + c.dx * u * c.L, oz = c.z + c.dz * u * c.L;
+        const h = sys.raycastFirst(new Vec3(ox, y, oz), new Vec3(ox - c.dz * sg * (c.W / 2 + 3), y, oz + c.dx * sg * (c.W / 2 + 3)), sinCoches);
+        if (h) cerca = true;
+      }
+      if (!cerca) sueltos.push(k);
+    }
+    for (const k of sueltos) { k.lejos.enabled = false; k.cerca?.destroy(); k.caja.e.destroy(); cajas.splice(cajas.indexOf(k.caja), 1); coches.coches.splice(coches.coches.indexOf(k), 1); }
+    coches.quitados = sueltos.map((k) => k.c.nodo);
+  }
 
   // ---- los botones y los avisos (en el móvil, botones grandes a la derecha; en el ordenador, el aviso con su tecla)
   const css = document.createElement('style');
@@ -172,6 +203,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
 
   // ---- subir
   const v1 = new Vec3(), v2 = new Vec3(), v3 = new Vec3(), qt = new Quat(), qt2 = new Quat();
+  const asisteFiltro = { filterCallback: (e) => !!C && e !== C.chasis && e.parent !== C.chasis && e.name !== 'controlador' && !e.tags?.has('gente') };
   async function subir(k) {
     if (est.modo !== 'pie' || !k?.caja) return false;
     est.modo = 'subiendo';
@@ -202,7 +234,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     const parte = (nombre, datos, x, y, z) => { const e = new Entity(nombre); e.setLocalPosition(-z, y, x); chasis.addChild(e); e.addComponent('collision', datos); return e; };
     parte('carroceria', { type: 'box', halfExtents: new Vec3(W / 2 - 0.02, (H - 0.27) / 2, L / 2 - 0.02) }, 0, 0.25 + (H - 0.27) / 2 - cdm, 0);
     for (const [x, z] of [[R.delante, R.via], [R.delante, -R.via], [R.detras, R.via], [R.detras, -R.via]]) parte('bajos', { type: 'sphere', radius: R.radio * 0.85 }, x, R.radio - cdm + 0.03, z);
-    chasis.addComponent('rigidbody', { type: 'dynamic', mass: R.masa || D.masa, friction: 0.35, restitution: 0.05, linearDamping: 0.01, angularDamping: 0.05 });
+    chasis.addComponent('rigidbody', { type: 'dynamic', mass: R.masa || D.masa, friction: FACIL ? 0.12 : 0.35, restitution: 0.05, linearDamping: 0.01, angularDamping: 0.05 }); // (fácil: resbala por la pared en vez de quedarse clavado)
     const cuerpo = chasis.rigidbody.body;
     cuerpo.setActivationState(4);
     // (el giro, el de un turismo y no el de una caja: la inercia de una caja de su tamaño y su masa)
@@ -255,7 +287,11 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     }
     // (sus matrículas y su sombra de contacto, las del coche de la calle)
     const placas = k.lejos.clone(); placas.enabled = true; vista.addChild(placas); placas.setLocalPosition(0, 0, 0); placas.setLocalRotation(Quat.IDENTITY); placas.setLocalScale(1, 1, 1);
-    for (const r of placas.findComponents('render')) for (const mi of r.meshInstances) mi.visible = /^(matricula|sombra)/.test(mi.material.name);
+    // (las matrículas, las del coche de cerca —src/vida.js, placasDe—: las de lejos quedaban por debajo de la chapa del de
+    // cerca y asomaba la pintada del modelo; 15-11-2026)
+    const placasCerca = fuera ? coches?.placas?.(k) : null;
+    if (placasCerca) placas.addChild(placasCerca);
+    for (const r of placas.findComponents('render')) for (const mi of r.meshInstances) mi.visible = placasCerca && r.entity === placasCerca ? true : /^(matricula|sombra)/.test(mi.material.name) && !(placasCerca && /^matricula/.test(mi.material.name));
     for (const r of vista.findComponents('render')) { r.castShadows = true; r.receiveShadows = true; }
     // (el interior no da sombra en el móvil: va dentro de la carrocería, que ya la da, y son unas veinte llamadas más
     // por cascada)
@@ -455,11 +491,11 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     const pide = est.bajando ? 0 : mandos.avance;
     if (!est.atras) {
       if (pide > 0) acel = pide;
-      else if (pide < 0) { if (va < 0.6) { est.tiempoAtras += dt; if (est.tiempoAtras > 0.4) { est.atras = true; est.tiempoAtras = 0; } } else freno = -pide; }
+      else if (pide < 0) { if (va < 0.6) { est.tiempoAtras += dt; if (est.tiempoAtras > (FACIL ? 0.2 : 0.4)) { est.atras = true; est.tiempoAtras = 0; } } else freno = -pide; }
       else est.tiempoAtras = 0;
     } else {
       if (pide < 0) acel = -pide;
-      else if (pide > 0) { if (va < 0.6) { est.tiempoAtras += dt; if (est.tiempoAtras > 0.4) { est.atras = false; est.tiempoAtras = 0; } } else freno = pide; }
+      else if (pide > 0) { if (va < 0.6) { est.tiempoAtras += dt; if (est.tiempoAtras > (FACIL ? 0.2 : 0.4)) { est.atras = false; est.tiempoAtras = 0; } } else freno = pide; }
       else est.tiempoAtras = 0;
     }
     if (est.bajando) freno = 1;
@@ -468,14 +504,17 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     // (embrague: por debajo del ralentí patina; el automático sube a 5.800 y baja a 2.000, o antes si se suelta)
     let rpm = Math.max(RALENTI + acel * 1800 * Math.max(0, 1 - rpmRuedas / 2200), rpmRuedas);
     if (!est.atras) {
-      if (rpm > 5800 && est.marcha < 5) est.marcha++;
+      if (rpm > (FACIL ? 4300 : 5800) && est.marcha < 5) est.marcha++; // (fácil: cambia antes, sin llevar el motor gritando a 40 km/h)
       else if (est.marcha > 1 && va / R.radio * MARCHAS[est.marcha - 2] * GRUPO * 60 / (2 * Math.PI) < (acel > 0.8 ? 4200 : 2600)) est.marcha--;
     }
     est.rpm += (Math.min(rpm, CORTE + 200) - est.rpm) * Math.min(1, dt * 12);
     let fuerza = rpm < CORTE ? acel * par(Math.max(rpm, 1500)) * ratio * GRUPO * 0.9 / R.radio : 0;
+    // (fácil: el tope de velocidad, que corta el motor con suavidad desde 3 km/h antes)
+    const vtope = est.atras ? VMAX_ATRAS : VMAX;
+    if (va > vtope - 0.8) fuerza *= Math.max(0, (vtope - va) / 0.8);
     if (est.atras) fuerza = -fuerza;
     // (el motor retiene un poco sin acelerar; el aire y la rodadura, siempre)
-    const retiene = acel === 0 && !freno ? 0.6 + va * 0.04 : 0;
+    const retiene = acel === 0 && !freno ? (FACIL ? 1.0 + va * 0.07 : 0.6 + va * 0.04) : va > vtope + 0.5 ? 1.5 : 0;
     veh.applyEngineForce(fuerza / 2, 0); veh.applyEngineForce(fuerza / 2, 1); veh.applyEngineForce(0, 2); veh.applyEngineForce(0, 3);
     const m = chasis.rigidbody.mass, por = m / 4 / 60; // (el freno de Bullet es un impulso por paso de 1/60 s y rueda)
     const fr = freno * 6.2 * por + retiene * por; // (a fondo, unos 8 m/s², lo de un turismo con ABS en seco)
@@ -485,9 +524,22 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     const aire = 0.39 * est.v * va + 0.012 * m * 10 * Math.sign(est.v) * Math.min(1, va);
     if (va > 0.05) chasis.rigidbody.applyForce(v1.copy(f).mulScalar(-aire));
     // la dirección: hasta 32° parado y menos cuanto más deprisa; el volante va y vuelve con su tiempo
-    const tope = 0.56 / (1 + va / 11);
-    const quiere = -mandos.giro * tope;
-    const rapidez = Math.abs(quiere) > Math.abs(est.giro) && Math.sign(quiere) === Math.sign(est.giro || quiere) ? 1.6 : 3.2;
+    const tope = 0.56 / (1 + va / (FACIL ? 16 : 11));
+    let giroPide = mandos.giro;
+    if (FACIL && !est.atras && va > 0.8) {
+      // (el asistente: tres rayos por delante, a la altura del paragolpes —uno al frente y dos abiertos 30°—; con una pared
+      // cerca a un lado y sin girar fuerte, lo aparta hacia el otro; con una justo delante y deprisa, frena)
+      const p = chasis.getPosition(), rx = -f.z, rz = f.x, L0 = 2.5 + va * 0.7, c30 = 0.866, s30 = 0.5;
+      const ox = p.x + f.x * C.L / 2, oz = p.z + f.z * C.L / 2, oy = p.y + 0.1;
+      const mide = (dx, dz, largo) => { const h = sys.raycastFirst(v1.set(ox, oy, oz), v2.set(ox + dx * largo, oy, oz + dz * largo), asisteFiltro); return h ? Math.hypot(h.point.x - ox, h.point.z - oz) : largo; };
+      const dI = mide(f.x * c30 - rx * s30, f.z * c30 - rz * s30, L0), dD = mide(f.x * c30 + rx * s30, f.z * c30 + rz * s30, L0), dF = mide(f.x, f.z, L0 + 2);
+      const empuje = Math.max(-0.7, Math.min(0.7, 1.6 * ((1 - dI / L0) - (1 - dD / L0))));
+      giroPide = Math.max(-1, Math.min(1, giroPide + empuje * Math.max(0, 1 - Math.abs(mandos.giro) * 1.6)));
+      if (va > 3 && dF < va * 0.9 + 1.2 && acel > 0) { acel = 0; freno = Math.max(freno, Math.min(1, 1 - (dF - 1.2) / (va * 0.9))); for (let i = 0; i < 4; i++) veh.setBrake(freno * 6.2 * por * (i < 2 ? 1.15 : 0.85), i); veh.applyEngineForce(0, 0); veh.applyEngineForce(0, 1); }
+      est.asiste = Math.round(empuje * 100) / 100;
+    }
+    const quiere = -giroPide * tope;
+    const rapidez = Math.abs(quiere) > Math.abs(est.giro) && Math.sign(quiere) === Math.sign(est.giro || quiere) ? (FACIL ? 2.6 : 1.6) : (FACIL ? 4.5 : 3.2);
     est.giro += Math.max(-rapidez * dt, Math.min(rapidez * dt, quiere - est.giro));
     veh.setSteeringValue(est.giro, 0); veh.setSteeringValue(est.giro, 1);
     est.acel = acel; est.freno = freno; est.mano = mandos.mano;

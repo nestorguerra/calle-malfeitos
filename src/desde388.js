@@ -156,6 +156,25 @@ if (q.get('foto388')) {
     // al punto de la foto, quieta; unos fotogramas (se compilan los sombreadores de lo que se ve y se suben las
     // texturas), y a la web: ya se puede fundir
     let { aspecto } = ponerEnLaFoto();
+    // lo que se monta después (los coches de cerca y la gente: src/main.js, trasListo), ya montado y con sus materiales
+    // preparados antes de enseñarse (15-11-2026; el usuario: «al entrar, algunas ocasiones entra con tirones»). Medido con
+    // el procesador cuatro veces más lento: en el vuelo hasta la chica, un fotograma de 900 ms en el que se preparaban 52
+    // materiales a la vez (las casas, los coches y la gente que la cámara veía por primera vez), y otros de 200 a 300 ms.
+    // Ahora, mientras el vídeo de la web tapa el juego: un momento todo dibujado sin recortar lo que no se ve, con los
+    // modelos de los coches de cerca y dos de cada vecino junto a la chica. ?calentar=0, como antes
+    if (q.get('calentar') !== '0') {
+      const t0c = performance.now();
+      while (performance.now() - t0c < 20000 && !('coches' in window.foto && 'gente' in window.foto)) await fotogramas(app, 1);
+      const c = window.foto.ctrl.getPosition(), junto = new Vec3(c.x + 2, c.y - 1, c.z + 2);
+      const quitar = [window.foto.coches?.calentar?.(junto), window.foto.gente?.calentar?.(junto)].filter(Boolean);
+      const recorta = cam.camera.frustumCulling; cam.camera.frustumCulling = false;
+      await fotogramas(app, 3);
+      // (y otra vez sin el multimuestreo y con él: la calidad adaptable lo quita o lo pone según vaya el aparato)
+      if (window.foto.muestras) { window.foto.muestras(true); await fotogramas(app, 2); window.foto.muestras(false); await fotogramas(app, 2); window.foto.muestrasNormales(); }
+      cam.camera.frustumCulling = recorta; quitar.forEach((f) => f());
+      ponerEnLaFoto();
+      window.tiempos && (window.tiempos.calentar = Math.round(performance.now() - t0c));
+    }
     await fotogramas(app, 12);
     decir('g388:listo', { tiempos: window.tiempos, recursos: performance.getEntriesByType('resource').filter((e) => e.transferSize > 1e6).length });   // (los tiempos de la obra y cuántos archivos grandes bajó de la red: para medir)
     // el vídeo (o la foto), igual que lo lleva la web, hasta que acaba el fundido

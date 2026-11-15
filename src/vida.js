@@ -278,7 +278,12 @@ export async function montarAnimales({ app, vida, centro, carpeta, glb, ctrl, so
           k.pn.positionX.setTargetAtTime(x, ct, 0.05); k.pn.positionZ.setTargetAtTime(z, ct, 0.05);
           k.motor.s.playbackRate.setTargetAtTime(0.85 + k.v * 0.06, ct, 0.2); k.motor.g.gain.setTargetAtTime(0.45, ct, 0.5);
         }
-        if ((k.s > fin - 8 && k.v < 0.05 && Math.hypot(c.x - x, c.z - z) > 35) || z > c.z + 90) {
+        // (parado al final de su carril, se va en cuanto la cámara no lo ve: antes esperaba a que la chica se alejara 35 m, y
+        // con ella cerca se quedaba parado en mitad de la calle sin fin. 15-11-2026, «hay coches parados en mitad de la calle»)
+        const cam_ = k.cam ||= app.root.findByName('camara'); (k.vp ||= new Vec3()).set(x, 0.8, z);
+        const noSeVe = cam_ && !cam_.camera.frustum.containsPoint(k.vp);
+        if ((k.s > fin - 8 && k.v < 0.05 && (Math.hypot(c.x - x, c.z - z) > 35 || (noSeVe && (k.parado = (k.parado || 0) + dt) > 2))) || z > c.z + 90) {
+          k.parado = 0;
           k.raiz.enabled = false; k.espera = azar(60, 120);
           if (k.motor) k.motor.g.gain.setTargetAtTime(0, sonido.ctx.currentTime, 0.3);
         }
@@ -410,9 +415,37 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
     }
   };
   for (const n of new Set(vida.coches.map((c) => c.tipo))) { const b = modelos.findByName('cerca_' + n); if (b) tintar(b, b.getPosition().y); }
+  // las matrículas (15-11-2026; el usuario: «en muchas ocasiones superpones una matrícula a otra»). Las del juego van en
+  // la malla de cada coche de la calle, 4 mm por fuera de la chapa del modelo (tools/blender/coches_reales.py), y se
+  // dejaban también sobre el de cerca. Pero el de cerca sale un poco mayor (se escala por su largo, con más detalle) y su
+  // chapa queda unos milímetros por fuera de esas placas: asomaba la matrícula pintada del modelo (la amarilla del Polo, la
+  // del frontal del Octavia de 2005). Y en el Superb, la de detrás buscó la chapa plana en el parachoques, y la del modelo
+  // (rusa) está en el maletero: se veían las dos. Ahora el de cerca lleva las suyas, 1,4 cm por fuera, y la de detrás del
+  // Superb va en el maletero también en el de lejos. Dónde va cada una, en el coche: x hacia el morro, y hacia arriba
+  // (tools/blender: las del registro de la última obra, «matrículas en»). ?placas=0, como antes
+  const PLACAS = { octavia2000: [[2.29, 0.33], [-2.2, 0.8]], octavia2005: [[2.35, 0.48], [-2.35, 0.48]], polo: [[2.04, 0.49], [-2.04, 0.525]], superb: [[2.47, 0.51], [-2.46, 0.57]] };
+  const MALETERO = { superb: (q.get('placasuperb') || '-2.38,0.86').split(',').map(Number) }; // (la de detrás del Superb, donde la lleva el modelo)
+  const mallaPlacas = (tipo, fuera, k = 1) => {   // (k: algo mayores las de cerca, para tapar los bordes de las pintadas)
+    const [f, d] = PLACAS[tipo], r = MALETERO[tipo] || d, pos = [], nor = [], uv = [], ind = [], a = 0.26 * k, h = 0.055 * k;
+    for (const [x0, y0, sg] of [[f[0], f[1], 1], [r[0], r[1], -1]]) {
+      const x = x0 + sg * fuera, b = pos.length / 3;
+      for (const [zz, yy] of [[sg * a, y0 - h], [-sg * a, y0 - h], [-sg * a, y0 + h], [sg * a, y0 + h]]) { pos.push(x, yy, zz); nor.push(sg, 0, 0); }
+      uv.push(0, 0.25, 0.25, 0.25, 0.25, 0, 0, 0); ind.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+    return createMesh(app.graphicsDevice, pos, { normals: nor, uvs: uv, indices: ind });
+  };
+  const conPlacas = q.get('placas') !== '0', placasCerca = {}, placasLejos = {};
+  const placasDe = (k) => {
+    if (!conPlacas || !PLACAS[k.c.tipo]) return null;
+    const m = k.lejos.render?.meshInstances.find((mi) => /^matricula/.test(mi.material?.name || ''))?.material; if (!m) return null;
+    const e = new Entity('placas_cerca'); e.addComponent('render', { meshInstances: [new MeshInstance(placasCerca[k.c.tipo] ||= mallaPlacas(k.c.tipo, 0.014, 1.04), m)], castShadows: false, receiveShadows: true });
+    return e;
+  };
   const coches = [];
   for (const c of vida.coches) {
     const lejos = app.root.findByName(c.nodo), base = modelos.findByName('cerca_' + c.tipo);
+    // (la de detrás del Superb, en el maletero también de lejos: su malla de matrículas, cambiada por una con esa)
+    if (conPlacas && MALETERO[c.tipo] && lejos?.render) for (const mi of lejos.render.meshInstances) if (/^matricula/.test(mi.material?.name || '')) mi.mesh = placasLejos[c.tipo] ||= mallaPlacas(c.tipo, 0.004);
     if (!lejos?.render || !base) continue;
     const queda = /^(matricula|sombra)/; // (lo que se deja de la versión de lejos)
     // (la sombra de contacto, pegada al suelo, y la matrícula no dan sombra: eran dos llamadas más por coche en cada cascada)
@@ -471,10 +504,12 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
       mis_.forEach((mi) => { mi.castShadow = false; });
       mis_.filter((mi) => !sinSombra_.test(mi.material?.name || '')).sort((a_, b_) => vol_(b_) - vol_(a_)).forEach((mi, i) => { mi.castShadow = i < n_; });
       k.cerca.setPosition(k.lejos.getPosition()); k.cerca.setRotation(k.lejos.getRotation()); k.cerca.setLocalScale(k.lejos.getWorldTransform().getScale());
+      const pl = placasDe(k); if (pl) { k.cerca.addChild(pl); k.placaLejos = k.lejos.render.meshInstances.filter((mi) => /^matricula/.test(mi.material?.name || '')); }
       if (k.pintura) for (const r of k.cerca.findComponents('render')) for (const mi of r.meshInstances) if (k.c.pintura.some((p) => mi.material.name.startsWith(p))) mi.material = k.pintura;
     }
     if (k.cerca) k.cerca.enabled = sí;
     if (!inst) for (const mi of k.mis) mi.visible = !sí;
+    if (k.placaLejos) for (const mi of k.placaLejos) mi.visible = !sí;
   };
   let n = 0;
   app.on('update', () => {
@@ -488,5 +523,18 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
     });
     if (inst) llenar();
   });
-  return { coches, cerca: () => coches.filter((k) => k.cerca?.enabled).map((k) => k.c.nodo), grupos: () => grupos.size };
+  // (para la entrada, src/desde388.js: los modelos de cerca, todos un momento en la escena junto a «p», para que la
+  // gráfica prepare sus materiales antes de que se vea nada; devuelve con qué quitarlos)
+  // (con la pintura de un coche de su modelo, que es como salen de cerca: sin ella, la gráfica aún preparaba cosas al
+  // aparecer el primero de cada modelo)
+  const calentar = (p) => {
+    const antes = [];
+    for (const n of new Set(coches.map((k) => k.c.tipo))) {
+      const b = modelos.findByName('cerca_' + n), k = coches.find((k_) => k_.c.tipo === n && k_.pintura);
+      if (b && k) for (const r of b.findComponents('render')) for (const mi of r.meshInstances) if (k.c.pintura.some((p_) => mi.material.name.startsWith(p_))) { antes.push([mi, mi.material]); mi.material = k.pintura; }
+    }
+    modelos.setPosition(p.x, p.y, p.z); modelos.enabled = true; app.root.addChild(modelos);
+    return () => { app.root.removeChild(modelos); for (const [mi, m] of antes) mi.material = m; };
+  };
+  return { coches, calentar, placas: placasDe, cerca: () => coches.filter((k) => k.cerca?.enabled).map((k) => k.c.nodo), grupos: () => grupos.size };
 }
