@@ -1,7 +1,7 @@
 // La vida de la calle (fase 5 del plan de calidad): el viento, la ropa tendida en algunos balcones y los faldones de los
 // toldos verdes que mueve. Todo sale de vida.json (tools/blender/calle_gris.py), en coordenadas del juego. La tela se
 // mueve en la CPU: son unos pocos cientos de vértices, y así sirve igual con WebGPU que con WebGL2.
-import { Asset, BLEND_NONE, BUFFER_DYNAMIC, BoundingBox, CULLFACE_NONE, Entity, MeshInstance, PRIMITIVE_TRIANGLES, Quat, StandardMaterial, Texture, Vec3, VertexBuffer, VertexFormat, createMesh } from 'playcanvas';
+import { Asset, BLEND_NONE, Color, BUFFER_DYNAMIC, BoundingBox, CULLFACE_NONE, Entity, MeshInstance, PRIMITIVE_TRIANGLES, Quat, StandardMaterial, Texture, Vec3, VertexBuffer, VertexFormat, createMesh } from 'playcanvas';
 
 // el viento: una brisa de tarde con rachas (de 0 a 1)
 export function viento(t) {
@@ -36,6 +36,23 @@ function textura(app, color, rayas) {
   for (let i = 0; i < im.data.length; i += 4) { const r = (Math.random() - 0.5) * 14; for (let k = 0; k < 3; k++) im.data[i + k] = Math.max(0, Math.min(255, im.data[i + k] + r)); }
   g.putImageData(im, 0, 0);
   const t = new Texture(app.graphicsDevice, { width: 64, height: 64, mipmaps: true }); t.setSource(c); return t;
+}
+
+// ---- los bancos, sólidos (15-11-2026): los del resto del pueblo se levantan sin colisión (tools/blender/calle_gris.py) y la
+// chica los atravesaba. Una caja por banco de vida.json, del suelo al respaldo, si allí no hay ya colisión. No se sube a
+// ellos (el asiento está a 46 cm y el escalón más alto que se sube solo, a 42: src/main.js). ?bancossolidos=0, sin ellas
+export function bancosSolidos({ app, vida, q }) {
+  if (q.get('bancossolidos') === '0' || !vida.bancos?.length) return 0;
+  const sys = app.systems.rigidbody, a = new Vec3(), b = new Vec3(); let n = 0;
+  for (const bc of vida.bancos) {
+    const [x, y, z] = bc.p, m = bc.mira, suelo = y - 0.46;
+    a.set(x, y + 0.6, z); b.set(x, suelo - 0.05, z);
+    const h = sys.raycastFirst(a, b); if (h && h.point.y > suelo + 0.2) continue; // (ya tiene)
+    const e = new Entity('banco_solido'); e.setPosition(x - m[0] * 0.0, suelo + 0.43, z - m[1] * 0.0); e.setEulerAngles(0, Math.atan2(m[0], m[1]) * 180 / Math.PI, 0);
+    e.addComponent('collision', { type: 'box', halfExtents: new Vec3((bc.largo || 1.6) / 2 + 0.05, 0.43, 0.27) }); e.addComponent('rigidbody', { type: 'static' });
+    app.root.addChild(e); n++;
+  }
+  return n;
 }
 
 export function montarVida({ app, vida, materiales, q }) {
@@ -363,10 +380,12 @@ export async function montarDinamicas({ app, vida, ctrl, q }) {
 }
 
 // ---- los coches aparcados de cerca (fase 4): cada coche de la calle (coche_<k> en el .glb de la calle) se cambia, a
-// menos de ?cerca=9 m de la cámara, por la versión de su modelo con más triángulos (coches_cerca.glb), con la pintura
-// de ese coche; de la versión de lejos quedan solo sus matrículas y su sombra de contacto. Como mucho, cuatro a la vez
-export async function montarCoches({ app, vida, carpeta, glb, camara, q }) {
-  const dist = parseFloat(q.get('cerca') || '9');
+// menos de ?cerca=22 m de la cámara (14 en el móvil), por la versión de su modelo con más triángulos (coches_cerca.glb),
+// con la pintura de ese coche; de la versión de lejos quedan solo sus matrículas y su sombra de contacto. Como mucho,
+// ?cercamax=6 a la vez (4 en el móvil: más eran unas 35 llamadas de dibujo cada uno). (Hasta el 15-11-2026, a 9 m y cuatro: el usuario, «cuando te acercas se nota
+// cuando aumentan de resolución… que sea desde más lejos para que no se note mientras se juega»)
+export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil = false }) {
+  const dist = parseFloat(q.get('cerca') || (movil ? '14' : '22')), maxCerca = parseInt(q.get('cercamax') || (movil ? '4' : '6'), 10);
   // (y los de más de ?lejos=70 m, apagados: con los 82 coches de las otras calles, las llamadas de dibujo pasaban de ~1.150
   // a ~2.250 en Malfeitos; tan lejos, entre casas, casi nunca se ven)
   const tope = parseFloat(q.get('lejos') || '70');
@@ -375,6 +394,22 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q }) {
   if (!a) return null;
   if (q.get('refraccion') !== '1') a.resource.materials.forEach((m) => { const mt = m.resource; if (mt && mt.refraction > 0) { mt.refraction = 0; mt.update(); } }); // (los cristales, sin la refracción que dejaba ver el cielo morado: src/main.js)
   const modelos = a.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
+  // las lunas, tintadas como las de un coche de verdad (15-11-2026; el usuario: «el coche se ve pixelado»): eran una película
+  // blanquecina casi transparente, y por ella se veía el interior con las manchas a cuadros de la oclusión ambiental (que
+  // se calcula sin el cristal y no se puede quitar solo ahí). Son los cristales a la altura de las ventanillas (centro a
+  // más de 0,8 m del suelo y 12 cm de alto o más), casi transparentes y no rojos: no los de los pilotos ni los faros. En
+  // las dos versiones, la de cerca y la de lejos, para que no se note el cambio. ?lunas=0, como antes
+  const tintadas = new Set();
+  const tintar = (raiz, y0) => {
+    if (q.get('lunas') === '0') return;
+    for (const r of raiz.findComponents('render')) for (const mi of r.meshInstances) {
+      const m = mi.material; if (!m || tintadas.has(m) || !/glass|cristal/i.test(m.name)) continue;
+      const ab = mi.aabb, d = m.diffuse, rojo = d.r > 0.6 && d.g < 0.35;
+      if (ab.center.y - y0 < 0.8 || ab.halfExtents.y < 0.12 || m.opacity >= 0.5 || rojo) continue;
+      tintadas.add(m); m.opacity = Math.max(0.62, m.opacity); m.diffuse = new Color(0.035, 0.04, 0.045); m.diffuseMap = null; m.update();
+    }
+  };
+  for (const n of new Set(vida.coches.map((c) => c.tipo))) { const b = modelos.findByName('cerca_' + n); if (b) tintar(b, b.getPosition().y); }
   const coches = [];
   for (const c of vida.coches) {
     const lejos = app.root.findByName(c.nodo), base = modelos.findByName('cerca_' + c.tipo);
@@ -382,6 +417,7 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q }) {
     const queda = /^(matricula|sombra)/; // (lo que se deja de la versión de lejos)
     // (la sombra de contacto, pegada al suelo, y la matrícula no dan sombra: eran dos llamadas más por coche en cada cascada)
     for (const mi of lejos.render.meshInstances) if (queda.test(mi.material.name)) mi.castShadow = false;
+    tintar(lejos, lejos.getPosition().y);
     coches.push({ c, lejos, base, cerca: null, mis: lejos.render.meshInstances.filter((mi) => !queda.test(mi.material.name)),
       pintura: lejos.render.meshInstances.find((mi) => mi.material.name.startsWith('pintura'))?.material });
   }
@@ -447,7 +483,7 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q }) {
     const orden = coches.map((k) => [k, k.lejos.getPosition().distance(p)]).sort((x, y) => x[1] - y[1]);
     orden.forEach(([k, d], i) => {
       if (k.conducido) return; // (el que se está conduciendo: src/conducir.js)
-      poner(k, d < dist && i < 4); if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope;
+      poner(k, d < dist && i < maxCerca); if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope;
       if (k.solas) for (const s of k.solas) s.mi.visible = d < 40 && !(k.cerca?.enabled && !s.queda);
     });
     if (inst) llenar();

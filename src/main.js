@@ -21,7 +21,7 @@ import { montarCanto } from './canto.js';
 import { montarReloj } from './reloj.js';
 import { montarGente } from './gente.js';
 import { montarAcciones } from './acciones.js';
-import { montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
+import { bancosSolidos, montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
 
@@ -222,6 +222,7 @@ device.maxPixelRatio = Math.min(window.devicePixelRatio, parseFloat(q.get('dpr')
 // entre la GPU y JavaScript), así que empieza tres escalones abajo de la calidad adaptable (sin multimuestreo, la sombra
 // a 2048 y la oclusión a menos resolución: ~110 MB menos de memoria gráfica) y sube si le sobra. ?movil=0 o =1 lo fuerza
 const movil = q.get('movil') ? q.get('movil') === '1' : (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900);
+const AO_ESCALA = parseFloat(q.get('aoescala') || (movil ? '0.5' : '1')); // (la resolución de la oclusión ambiental: ver el postproceso)
 if (device.wgpu) device.wgpu.lost.then(() => setTimeout(() => location.reload(), 500)); // (ver «la memoria de la geometría»)
 device.on?.('devicelost', () => setTimeout(() => location.reload(), 500));
 
@@ -415,7 +416,10 @@ if (q.get('post') !== '0') {
     // más de la mitad del fotograma. Bloom a 4 niveles —su intensidad es mínima— y la oclusión, con su difuminado, a
     // media resolución. Sin el difuminado, con muestras al azar para el TAA, dejaba una trama por toda la imagen)
     post.bloom.blurLevel = parseInt(q.get('bloomniv') || '4', 10);
-    post.ssao.scale = parseFloat(q.get('aoescala') || '0.5');
+    // (a resolución completa en el ordenador: a media, el interior de los coches que se ve por las lunas salía lleno de
+    // manchas a cuadros —el cristal no está en la profundidad con la que se calcula—; el usuario, 15-11-2026: «el coche
+    // se ve pixelado». Cuesta 1,2 ms en la plaza llena; si no llega, la calidad adaptable la baja. En el móvil, a media)
+    post.ssao.scale = AO_ESCALA;
     post.ssao.type = 'combine'; post.ssao.intensity = parseFloat(q.get('ao') || escena.ao || '0.6'); post.ssao.radius = parseFloat(q.get('aoradio') || '8'); post.ssao.samples = 16; post.ssao.power = 4; // (con un radio grande oscurecía fachadas enteras como si estuvieran a la sombra: radio corto, solo rincones y juntas)
     post.bloom.intensity = 0.02; post.bloom.threshold = 0.8; post.vignette.intensity = 0.25;
     if (q.get('brillo') === '0') post.bloom.enabled = false; // (?brillo=0, sin el bloom: para medir lo que cuesta y lo que se ve)
@@ -885,26 +889,60 @@ if (q.get('fluido') !== '0') {
     tpc._yaw -= e.movementX * tpc.lookSens; tpc._pitch = Math.min(tpc.pitchMax, Math.max(tpc.pitchMin, tpc._pitch + e.movementY * tpc.lookSens));
   });
 }
-// subir bordillos y peldaños (hasta 40 cm): con la cápsula estrecha, su curva ya no los remonta sola. Si al andar hay
-// algo a la altura de los pies justo delante y libre a medio metro, se sube el personaje a lo de arriba
-const escalon = { a: new Vec3(), b: new Vec3(), dir: new Vec3(), op: { filterCallback: (e) => e !== ctrl } };
-app.on('update', () => {
-  if (!andando && !enRuta) return;
-  const p = ctrl.getPosition(), pies = p.y - 1, sys = app.systems.rigidbody, d = escalon.dir;
-  const v = ctrl.rigidbody.linearVelocity;
-  if (Math.hypot(v.x, v.z) > 0.3) d.set(v.x, 0, v.z).normalize();
-  else { d.copy(muneco.forward); if (chica) d.mulScalar(-1); d.y = 0; d.normalize(); } // (frenado contra el escalón: hacia donde mira)
-  const lejos = RADIO + 0.2;
-  escalon.a.set(p.x, pies + 0.04, p.z); escalon.b.set(p.x + d.x * lejos, pies + 0.04, p.z + d.z * lejos);
-  const bajo = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
-  if (!bajo || bajo.normal.y > 0.7) return;
-  escalon.a.y = escalon.b.y = pies + 0.45;
-  if (sys.raycastFirst(escalon.a, escalon.b, escalon.op)) return; // (una pared, no un escalón)
-  escalon.a.set(bajo.point.x + d.x * 0.08, pies + 0.45, bajo.point.z + d.z * 0.08); escalon.b.set(escalon.a.x, pies - 0.05, escalon.a.z);
-  const arriba = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
-  const h = arriba ? arriba.point.y - pies : 0;
-  if (h > 0.02 && h < 0.42) { ctrl.rigidbody.teleport(p.x + d.x * 0.04, p.y + h + 0.01, p.z + d.z * 0.04); ctrl.rigidbody.linearVelocity = v; }
+// subir y bajar bordillos, peldaños y escaleras sin pensar (15-11-2026; el usuario: «mejora la dinámica a la hora de subir
+// cualquier escalera… que sea sencillo e intuitivo»). Antes se buscaba la tabica con un rayo a ras de los pies y, si a
+// 45 cm de alto había algo a medio metro, se tomaba por una pared: en una escalera de huella corta (la del púlpito, 27 cm)
+// el peldaño siguiente quedaba ahí; y cada peldaño se subía de golpe. Ahora:
+// - se mira el suelo un poco por delante, desde arriba (a 35 y a 55 cm del centro, hacia donde va): si está hasta 42 cm
+//   más alto y encima hay sitio para la chica, se sube ya, antes de chocar con el peldaño, sin frenar;
+// - bajando, en cuanto el centro sale del borde, se baja al suelo de abajo (hasta 45 cm), sin el saltito de caer;
+// - la cápsula de la física sube o baja de una vez, pero el muñeco la sigue suave (se queda atrás lo subido y lo recupera
+//   en unas décimas): se ve subir la escalera, no a saltos.
+const escalon = { a: new Vec3(), b: new Vec3(), d: new Vec3(), op: { filterCallback: (e) => e !== ctrl && e.name !== 'caja_coche' && !e.tags?.has('gente') } };
+let alivio = 0, alivioCam = 0; // (lo que el muñeco va por detrás de la cápsula, en altura; y lo que baja la cámara en este fotograma)
+app.on('update', (dt) => {
+  if (alivio) { alivio *= Math.exp(-dt / 0.08); if (Math.abs(alivio) < 0.003) alivio = 0; muneco.setLocalPosition(0, -1 + alivio, 0); }
+  alivioCam = alivio; // (la cámara ya está puesta con la cápsula de antes de lo que se suba ahora: baja lo de antes)
+  if ((!andando && !enRuta) || !ctrl.enabled) return;
+  const v = ctrl.rigidbody.linearVelocity; if (v.y > 1.2) return; // (saltando)
+  const p = ctrl.getPosition(), pies = p.y - 1, sys = app.systems.rigidbody, d = escalon.d;
+  // hacia dónde va: su velocidad; parada contra algo, hacia donde se pulsa (la cámara y las teclas) o hacia donde mira
+  if (Math.hypot(v.x, v.z) > 0.25) d.set(v.x, 0, v.z).normalize();
+  else {
+    const ax = tpc._state?.axis;
+    if (ax && (ax.x || ax.z)) { const y_ = tpc._yaw * Math.PI / 180, fx = -Math.sin(y_), fz = -Math.cos(y_); d.set(fx * ax.z + Math.cos(y_) * ax.x, 0, fz * ax.z - Math.sin(y_) * ax.x); if (d.lengthSq() < 1e-6) return; d.normalize(); }
+    else { d.copy(muneco.forward); if (chica) d.mulScalar(-1); d.y = 0; if (d.lengthSq() < 1e-6) return; d.normalize(); }
+  }
+  // el suelo de delante
+  const ahora_ = performance.now(), libre = (x, z, y0) => { escalon.a.set(x, y0 + 0.05, z); escalon.b.set(x, y0 + 1.7, z); return !sys.raycastFirst(escalon.a, escalon.b, escalon.op); };
+  const subir = (dh, x, z) => { ctrl.rigidbody.teleport(x, p.y + dh + 0.01, z); ctrl.rigidbody.linearVelocity = new Vec3(v.x, 0, v.z); alivio -= dh + 0.01; muneco.setLocalPosition(0, -1 + alivio, 0); escalon.subio = ahora_; }; // (el muñeco, en su sitio ya en este fotograma: si no, se le veía arriba uno)
+  let dh = null;
+  for (const lejos of [RADIO + 0.05, RADIO + 0.25]) {
+    escalon.a.set(p.x + d.x * lejos, pies + 0.6, p.z + d.z * lejos); escalon.b.set(escalon.a.x, pies - 0.6, escalon.a.z);
+    const h = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
+    if (h && h.normal.y > 0.95) { dh = h.point.y - pies; if (dh > 0.03 && dh < 0.42 && libre(h.point.x, h.point.z, h.point.y)) { subir(dh, p.x, p.z); return; } break; } // (un peldaño es plano: las rampas, como las gradas del atrio, las sube la física sola)
+  }
+  // (y si delante hay una tabica que no se ve desde arriba —un umbral estrecho, que el rayo de delante salta—: su borde)
+  escalon.a.set(p.x, pies + 0.05, p.z); escalon.b.set(p.x + d.x * (RADIO + 0.2), pies + 0.05, p.z + d.z * (RADIO + 0.2));
+  const tabica = sys.raycastFirst(escalon.a, escalon.b, escalon.op);
+  if (tabica && tabica.normal.y < 0.7) {
+    const tx = tabica.point.x + d.x * 0.06, tz = tabica.point.z + d.z * 0.06;
+    escalon.a.set(tx, pies + 0.5, tz); escalon.b.set(tx, pies, tz);
+    const arriba = sys.raycastFirst(escalon.a, escalon.b, escalon.op), h = arriba ? arriba.point.y - pies : 0;
+    if (h > 0.02 && h < 0.42 && libre(tx, tz, arriba.point.y)) { subir(h, p.x + d.x * 0.04, p.z + d.z * 0.04); return; }
+  }
+  // bajar: si ya no hay suelo bajo el centro ni bajo la parte de delante, al de abajo (y no justo después de subir)
+  if (v.y < 0.5 && ahora_ - (escalon.subio || 0) > 250) {
+    const bajoEn = (x, z) => { escalon.a.set(x, pies + 0.05, z); escalon.b.set(x, pies - 0.5, z); const h = sys.raycastFirst(escalon.a, escalon.b, escalon.op); return h && h.normal.y > 0.95 ? pies - h.point.y : null; };
+    const baja = bajoEn(p.x, p.z), bajaDelante = bajoEn(p.x + d.x * 0.2, p.z + d.z * 0.2);
+    if (baja != null && bajaDelante != null && baja > 0.07 && baja < 0.46 && bajaDelante > 0.07) {
+      ctrl.rigidbody.teleport(p.x, p.y - baja + 0.01, p.z); ctrl.rigidbody.linearVelocity = new Vec3(v.x, 0, v.z); alivio += baja - 0.01; muneco.setLocalPosition(0, -1 + alivio, 0);
+    }
+  }
 });
+// (y la cámara, igual: el controlador la pone cada fotograma según la cápsula; aquí, después, baja lo que el muñeco va por
+// detrás, y sube con él. Sin esto, la cámara daba un salto de 22 cm en cada peldaño)
+app.on('update', () => { if (alivioCam && ctrl.enabled) camara.translate(0, alivioCam, 0); });
 // ?pose=Andar&t=0.4: el muñeco quieto en un instante de una animación (para fotografiar el paso)
 if (q.get('pose')) {
   let n_ = 0;
@@ -939,6 +977,7 @@ if (escena.vida && q.get('vida') !== '0') {
   if (escena.aparcados && q.get('aparcados') !== '0') { try { aparcar({ app, vida, sitios: await (await fetch(escena.aparcados)).json() }); } catch (e) { console.warn('aparcados:', e); } }
   const materiales = [A.modelo, ...(escena.partes || []).map((_, i) => A['parte' + i])].filter(Boolean).flatMap((a) => a.resource.materials.map((m) => m.resource)).filter(Boolean);
   montarVida({ app, vida, materiales, q });
+  tiempos.bancos_solidos = bancosSolidos({ app, vida, q }); // (los bancos que no tenían colisión: src/vida.js)
   if (escena.reloj && q.get('reloj') !== '0') { try { reloj = montarReloj({ app, sol, rebote, post, escena, q, vida, hud: null, interior: escena.dentro?.planta || null }); } catch (e) { console.warn('reloj:', e); } }
   if (escena.vecinos) montarVecinos({ app, vida, carpeta: escena.vecinos, glb, chica: ctrl, q }).then((v) => { if (window.foto) window.foto.vecinos = v; });
   if (escena.sonidos) sonido = montarSonido({ app, camara, ctrl, muneco, carpeta: escena.sonidos, vida, suelo: () => rayo.ultimaY, viento, q, despues: trasListo });
@@ -946,7 +985,7 @@ if (escena.vida && q.get('vida') !== '0') {
   const centro = await (await fetch(escena.vida.replace('vida.json', 'centro.json'))).json();
   trasListo.then(() => montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q })).then((a) => { if (window.foto) window.foto.animales = a; });
   montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; });
-  trasListo.then(() => montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q })).then((c) => {
+  trasListo.then(() => montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q, movil })).then((c) => {
     if (window.foto) window.foto.coches = c;
     // (subirse a un coche aparcado y conducirlo: src/conducir.js)
     try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
@@ -976,7 +1015,7 @@ const NIVELES = [
   () => {}, // (0: todo)
   (on) => { if (post) post.rendering.samples = on ? 1 : parseInt(q.get('msaa') || '4', 10); },
   (on) => { if (sol.light) sol.light.shadowResolution = on ? 2048 : parseInt(q.get('sres') || '4096', 10); },
-  (on) => { if (post?.ssao) post.ssao.scale = on ? 0.35 : parseFloat(q.get('aoescala') || '0.5'); },
+  (on) => { if (post?.ssao) post.ssao.scale = on ? 0.35 : AO_ESCALA; },
   null, // (4: la resolución, por debajo de 1×)
   (on) => { if (sol.light) Object.assign(sol.light, on ? { numCascades: 1, shadowDistance: 45 } : { numCascades: parseInt(q.get('cascadas') || '2', 10), shadowDistance: parseFloat(q.get('sdist') || '70') }); },
 ];
