@@ -279,6 +279,22 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     return { h, d, m };
   };
   const enMisa = () => { const { h, d, m } = ahora(), mh = misaHora(d, m); return { antes: h > mh - 0.6 && h < mh - 0.05, durante: h >= mh - 0.05 && h < mh + 0.7, salida: h >= mh + 0.7 && h < mh + 0.95 }; };
+  const lluvia = () => Math.min(1, (reloj?.clima?.lluvia || 0) * 1.6);   // (de 0 a 1: 1 mm/h ya es 0,4; src/tiempo.js)
+  // el paraguas: una cúpula y un mango, encima de la cabeza y algo a la derecha, como llevado con esa mano; uno por vecino,
+  // que se guarda con él
+  const colPar = ['#1d2230', '#2b1f24', '#18222a', '#3a2a22', '#22262a', '#5a1f24'].map((c) => { const m = new StandardMaterial(); m.diffuse = new Color().fromString(c); m.gloss = 0.35; m.update(); return m; });
+  const matMango = new StandardMaterial(); matMango.diffuse = new Color(0.08, 0.07, 0.06); matMango.update();
+  function ponerParaguas(v, si) {
+    if (si && !v.paraguas) {
+      const e = new Entity('paraguas'), alto = (v.info?.alto || 1.7);
+      const cup = new Entity('cupula'); cup.addComponent('render', { type: 'cone', material: colPar[Math.floor(Math.random() * colPar.length)], castShadows: true });
+      cup.setLocalScale(1.05, 0.26, 1.05); cup.setLocalPosition(0, 0, 0); e.addChild(cup);
+      const man = new Entity('mango'); man.addComponent('render', { type: 'cylinder', material: matMango, castShadows: false });
+      man.setLocalScale(0.022, 0.62, 0.022); man.setLocalPosition(0, -0.38, 0); e.addChild(man);
+      e.setLocalPosition(-0.14, alto + 0.33, 0.1); v.raiz.addChild(e); v.paraguas = e;
+    }
+    if (v.paraguas && v.paraguas.enabled !== !!si) v.paraguas.enabled = !!si;
+  }
   const iglesiaCentro = sitiosIglesia ? (() => { const s = sitiosIglesia.bancos; return [s.reduce((a, b) => a + b.asiento[0], 0) / s.length, s.reduce((a, b) => a + b.asiento[1], 0) / s.length]; })() : null;
   const dentroIglesia = (x, z) => iglesiaCentro && Math.hypot(x - iglesiaCentro[0], z - iglesiaCentro[1]) < 17;
 
@@ -389,7 +405,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     const p = yo(); pesoLocal = 0;
     cerca(p.x, p.z, RADIO, (j) => { if (Math.hypot(X[j] - p.x, Z[j] - p.z) < RADIO) pesoLocal += W[j]; });
     const { h, d, m } = ahora();
-    objetivo = Math.min(TOPE, Math.round(VECINOS * enLaCalle(h, d, m) * pesoLocal / WT * FACTOR * 2.2));
+    objetivo = Math.min(TOPE, Math.round(VECINOS * enLaCalle(h, d, m) * pesoLocal / WT * FACTOR * 2.2 * (1 - 0.65 * lluvia())));   // (con lluvia, menos en la calle)
     // (×2,2: los que se ven son los de la calle de verdad más los que están en la puerta de casa, en las terrazas y en los
     // corros, que en el plano de calles no cuentan; ver docs/gente.md)
     const misa = enMisa();
@@ -437,14 +453,15 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     if (!lista.length) return;
     // los niños por la tarde, a jugar a la plaza (si hay plaza cerca); si no, con un mayor de la mano... andando cerca
     // (un grupo son de 2 a 4: para que los niños sean los que tocan y no el triple, solo una vez de cada tres)
-    if (tipo === 'nino' && Math.random() < (oscuro ? 0.15 : 0.34) && (h > 16.5 && h < 21 || (d === 0 || d === 6) && h > 10.5 && h < 14) && plazasNodos.length) {
+    const llueve = lluvia() > 0.15;   // (con lluvia: ni niños jugando, ni bancos, ni sillas a la puerta, y pocos corros)
+    if (!llueve && tipo === 'nino' && Math.random() < (oscuro ? 0.15 : 0.34) && (h > 16.5 && h < 21 || (d === 0 || d === 6) && h > 10.5 && h < 14) && plazasNodos.length) {
       const s = sitioOculto(inicial ? 6 : 20, dmax, (j) => PLAZA[j] === 1);
       if (s) { nuevoJugando(s.i); return; }
     }
     const r = Math.random();
     // sentarse en un banco libre (sobre todo los mayores, y de día)
     const quiereBanco = tipo === 'mayor' ? 0.4 : tipo === 'joven' ? 0.15 : 0.08;
-    if (r < quiereBanco && h > 9 && h < 22) {
+    if (!llueve && r < quiereBanco && h > 9 && h < 22) {
       const libres = [];
       for (const b of bancosLibres) {
         const dd = Math.hypot(b.p[0] - p.x, b.p[2] - p.z); if (dd > dmax || dd < (inicial ? 3 : 18)) continue;
@@ -455,7 +472,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     }
     // a la puerta de casa, en una silla: los mayores, al sol del mediodía en invierno y al fresco de la tarde el resto del año
     const { m } = ahora(), invierno = m >= 11 || m <= 3;
-    if (tipo === 'mayor' && sillas.length && Math.random() < 0.35 && (invierno ? h > 11 && h < 15.5 : h > 18 && h < 22.5)) {
+    if (!llueve && tipo === 'mayor' && sillas.length && Math.random() < 0.35 && (invierno ? h > 11 && h < 15.5 : h > 18 && h < 22.5)) {
       const libres = sillas.filter((s) => !s.quien && Math.hypot(s.p[0] - p.x, s.p[2] - p.z) < dmax && (inicial || !enVista(s.p[0], s.p[1], s.p[2])));
       if (libres.length) {
         const s = elegir(libres), v = nacer(elegir(lista), s.p[0] - s.mira[0] * 0.04, s.p[2] - s.mira[1] * 0.04, s.p[1]);
@@ -464,7 +481,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       }
     }
     // un corro (más a media mañana, a la salida de misa y al paseo de la tarde)
-    if (r < quiereBanco + (tipo === 'mayor' ? 0.25 : 0.18)) {
+    if ((!llueve || Math.random() < 0.2) && r < quiereBanco + (tipo === 'mayor' ? 0.25 : 0.18)) {
       const s = sitioOculto(inicial ? 5 : 22, dmax);
       if (s) { const N_ = Math.random() < 0.65 ? 2 : 3, tipos = Array.from({ length: N_ }, (_, k) => (k === 0 ? tipo : TIPOS[pesar(mezcla.map((m, i) => (i === 3 ? 0 : m)))])); nuevoCorro(s.i, tipos); return; }
     }
@@ -522,6 +539,17 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       // la misa: al acabar, a la calle
       const misa = enMisa();
       if (!misa.durante) for (const v of gente.slice()) if (v.estado === 'misa') { if (!enVista(v.x, v.y, v.z) && Math.random() < 0.5) morir(v); else salirDeMisa(v); }
+      // con lluvia: los sentados se levantan y se van, los niños que juegan, a casa, los corros duran poco; y el paraguas,
+      // abierto para los que están de pie en la calle (15-11-2026, la revisión del juego: con lluvia seguía la plaza llena,
+      // con gente en los bancos y niños jugando, y nadie con paraguas)
+      const ll = lluvia();
+      if (ll > 0.15) for (const v of gente) {
+        if (v.ocupado) continue;
+        if ((v.estado === 'sentado') && Math.random() < 0.12) { v.sitio && (v.sitio.quien = null); v.sitio = null; poner(v, 'levantarse', 0.2); v.estado = 'levantandose'; v.t = 1.1; }
+        else if (v.grupo?.jugar && Math.random() < 0.2) { const g = v.grupo; for (const o of g.miembros) { o.grupo = null; const dd = destino(o); if (!dd || !irA(o, dd[0], dd[1], dd[2])) o.quiereIrse = true; } }
+        else if (v.grupo && !v.grupo.jugar) v.grupo.hasta = Math.min(v.grupo.hasta, tt + azar(2, 9));
+      }
+      for (const v of gente) ponerParaguas(v, ll > 0.15 && v.info.tipo !== 'nino' && !/sentado|misa|levantandose|sentarse/.test(v.estado) && !dentroIglesia(v.x, v.z));
       // las sombras, solo de los cercanos
       for (const v of gente) { const cs = Math.hypot(v.x - p.x, v.z - p.z) < 32; if (v.sombra !== cs) { v.sombra = cs; for (const r of v.e.findComponents('render')) r.castShadows = cs; } }
     }

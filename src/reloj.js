@@ -148,10 +148,13 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   const buscarMateriales = () => {
     for (const a of app.assets.list()) {
       if (a.type !== 'container' || !a.resource?.materials) continue;
-      for (const m of a.resource.materials) { const mt = m.resource; if (mt && /^(farol|farola_cristal|glass(\.\d+)?)$/.test(mt.name) && !farolesMat.has(mt)) { farolesMat.add(mt); mt._luzFarol = { emissive: mt.emissive.clone(), int: mt.emissiveIntensity, map: mt.emissiveMap }; } }
+      // (los cristales «glass…», solo los de los faroles: los de materiales.glb, las zonas y la iglesia. Los coches también
+      // llaman «glass…» a sus lunas, y de noche se encendían todas como faroles; 15-11-2026, la revisión del juego)
+      const deFaroles = /^(parte\d+|zona_|iglesia)/.test(a.name || '');
+      for (const m of a.resource.materials) { const mt = m.resource; if (mt && (/^(farol|farola_cristal)$/.test(mt.name) || (deFaroles && /^glass(\.\d+)?$/.test(mt.name))) && !farolesMat.has(mt)) { farolesMat.add(mt); mt._luzFarol = { emissive: mt.emissive.clone(), int: mt.emissiveIntensity, map: mt.emissiveMap }; } }
     }
   };
-  const lista = (vida?.faroles || []).map((f) => [f.p[0] + (f.mira ? f.mira[0] * 1.1 : 0), f.p[1], f.p[2] + (f.mira ? f.mira[1] * 1.1 : 0)]); // (el charco, algo separado de la pared)
+  const lista = (vida?.faroles || []).map((f) => [f.p[0] + (f.mira ? f.mira[0] * 1.1 : 0), f.p[1], f.p[2] + (f.mira ? f.mira[1] * 1.1 : 0), f]); // (el charco, algo separado de la pared)
   // el suelo bajo cada farol, con un rayo (la física es plana: la acera o la calzada), una vez
   const sueloDe = new Map(), va_ = new Vec3(), vb_ = new Vec3();
   const sueloBajo = (p) => {
@@ -165,15 +168,24 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
     if (!matCharco) {
       matCharco = new StandardMaterial(); matCharco.diffuse = new Color(0, 0, 0); matCharco.emissive = new Color(1, 0.78, 0.5); matCharco.emissiveMap = texturaCharco(app.graphicsDevice);
       matCharco.opacityMap = matCharco.emissiveMap; matCharco.opacityMapChannel = 'a'; matCharco.blendType = BLEND_ADDITIVE; matCharco.depthWrite = false; matCharco.cull = CULLFACE_NONE;
-      matCharco.useLighting = false; matCharco.useFog = true; matCharco.update();
+      matCharco.useLighting = false; matCharco.useFog = true; matCharco.emissiveIntensity = 1.5; matCharco.update();
     }
     const cerca = lista.filter((p) => Math.hypot(p[0] - c.x, p[2] - c.z) < 120).slice(0, 220);
     const pos = [], uv = [], nor = [], ind = [];
     for (const p of cerca) {
-      const y0 = sueloBajo(p) + 0.03, r = 3.2;
-      const k = pos.length / 3;
+      const y0 = sueloBajo(p) + 0.03, r = 4.2;   // (de 3,2 a 4,2 m y más fuerte: de noche apenas se veían. 15-11-2026, la revisión del juego)
+      let k = pos.length / 3;
       pos.push(p[0] - r, y0, p[2] - r, p[0] + r, y0, p[2] - r, p[0] + r, y0, p[2] + r, p[0] - r, y0, p[2] + r);
       uv.push(0, 0, 1, 0, 1, 1, 0, 1); nor.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0); ind.push(k, k + 1, k + 2, k, k + 2, k + 3);
+      // (y en la fachada de un farol de pared, un resplandor alrededor: la pared está 25 cm detrás del farol; sin él, el
+      // farol brillaba y la casa de detrás seguía a oscuras)
+      const f = p[3];
+      if (f?.mira) {
+        const [mx, mz] = f.mira, cx = f.p[0] - mx * 0.22, cz = f.p[2] - mz * 0.22, cy = f.p[1] - 0.4, a = 1.7, h = 1.9, tx = -mz, tz = mx;
+        k = pos.length / 3;
+        pos.push(cx - tx * a, cy - h, cz - tz * a, cx + tx * a, cy - h, cz + tz * a, cx + tx * a, cy + h, cz + tz * a, cx - tx * a, cy + h, cz - tz * a);
+        uv.push(0, 0, 1, 0, 1, 1, 0, 1); nor.push(mx, 0, mz, mx, 0, mz, mx, 0, mz, mx, 0, mz); ind.push(k, k + 1, k + 2, k, k + 2, k + 3);
+      }
     }
     if (!pos.length) return;
     // (con normales: sin ellas, WebGPU no podía montar su sombreado y no se dibujaba nada)
@@ -227,7 +239,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
       rebote.setRotation(new Quat().setFromAxisAngle(ej.normalize(), Math.acos(d.y) / rad)); rebote.light.intensity = base.rebote * mezcla(0.08, 1, cielo);
     }
     // el cielo y la luz de ambiente, la exposición y la bruma
-    luzCielo(base.amb * Math.max(mezcla(0.012, 1, cielo ** 1.2), 0.62 * dentro) * mezcla(1, clima.cielo, 1 - dentro)); // (de noche, 0,025: medido a ojo, el cielo casi negro y la calle a oscuras salvo los faroles)
+    luzCielo(base.amb * Math.max(mezcla(0.03, 1, cielo ** 1.2), 0.62 * dentro) * mezcla(1, clima.cielo, 1 - dentro)); // (de noche, el 3 % de la de día: con el 1,2 % de antes, la calle quedaba casi negra y no se veía por dónde se iba; 15-11-2026)
     app.scene.exposure = base.exposicion;
     mezclaColor(cNiebla, [0.06, 0.08, 0.13], E < 8 && E > -8 ? [0.86, 0.68, 0.55] : base.niebla, E < 8 && E > -8 ? 1 - Math.abs(E) / 8 : dia);
     if (E >= 8) cNiebla.set(...base.niebla);
@@ -241,7 +253,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
     const luz = Math.max(0, Math.min(1, (4 - E) / 8));
     if (luz > 0) buscarMateriales();
     for (const mt of farolesMat) {
-      if (luz > 0) { mt.emissive = cSol.set(1, 0.82, 0.55); mt.emissiveMap = mt.diffuseMap || mt._luzFarol.map; mt.emissiveIntensity = 2.2 * luz; }
+      if (luz > 0) { mt.emissive = cSol.set(1, 0.82, 0.55); mt.emissiveMap = mt.diffuseMap || mt._luzFarol.map; mt.emissiveIntensity = 3.0 * luz; }
       else { mt.emissive = mt._luzFarol.emissive; mt.emissiveMap = mt._luzFarol.map; mt.emissiveIntensity = mt._luzFarol.int; }
       mt.update();
     }

@@ -15,7 +15,7 @@
 import { BLEND_NORMAL, Color, CULLFACE_NONE, Entity, Mesh, MeshInstance, PRIMITIVE_TRIANGLES, StandardMaterial, Texture, Vec3, ADDRESS_REPEAT, ADDRESS_CLAMP_TO_EDGE } from 'playcanvas';
 
 const LAT = 38.861609, LON = -6.10126;
-const URL = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,precipitation,rain,snowfall,weather_code,cloud_cover,cloud_cover_low,visibility,wind_speed_10m,wind_direction_10m&timezone=Europe%2FMadrid&forecast_days=3`;
+const URL = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m,precipitation,rain,showers,snowfall,weather_code,cloud_cover,cloud_cover_low,visibility,wind_speed_10m,wind_direction_10m&timezone=Europe%2FMadrid&forecast_days=3`;
 // (lo que dice cada código de la OMM, para la pastilla)
 const CIELO = (c, nubes) => c >= 95 ? 'tormenta' : c >= 71 && c <= 77 || c === 85 || c === 86 ? 'nieve' : c >= 61 && c <= 67 || c >= 80 && c <= 82 ? 'lluvia' : c >= 51 && c <= 57 ? 'llovizna'
   : c === 45 || c === 48 ? 'niebla' : nubes > 85 ? 'cubierto' : nubes > 55 ? 'nublado' : nubes > 20 ? 'algo nublado' : 'despejado';
@@ -67,7 +67,8 @@ export function montarTiempo({ app, reloj, camara, q, movil }) {
     try {
       const r = await fetch(URL, { cache: 'no-store' }); if (!r.ok) throw new Error('open-meteo ' + r.status);
       const j = await r.json(), H = j.hourly; est.pedido = Date.now(); est.error = null;
-      est.horas = H.time.map((t_, i) => ({ t: t_, temp: H.temperature_2m[i], lluvia: H.rain[i] ?? H.precipitation[i], nieve: H.snowfall[i] || 0, codigo: H.weather_code[i], nubes: H.cloud_cover[i], bajas: H.cloud_cover_low[i] ?? H.cloud_cover[i], visibilidad: H.visibility[i] ?? 20000, viento: H.wind_speed_10m[i], rumbo: H.wind_direction_10m[i] }));
+      est.horas = H.time.map((t_, i) => ({ t: t_, temp: H.temperature_2m[i], lluvia: (H.rain?.[i] ?? 0) + (H.showers?.[i] ?? 0) || (H.snowfall?.[i] ? 0 : H.precipitation?.[i] ?? 0),   // (la de frente y los chubascos: «rain» no los lleva, y con los códigos 80-82 la pastilla decía «lluvia» sin caer una gota)
+        nieve: H.snowfall[i] || 0, codigo: H.weather_code[i], nubes: H.cloud_cover[i], bajas: H.cloud_cover_low[i] ?? H.cloud_cover[i], visibilidad: H.visibility[i] ?? 20000, viento: H.wind_speed_10m[i], rumbo: H.wind_direction_10m[i] }));
     } catch (e) { est.error = String(e); console.warn('tiempo:', e); }
   }
   pedir(); const cadaMedia = setInterval(pedir, 30 * 60 * 1000);
@@ -112,6 +113,25 @@ export function montarTiempo({ app, reloj, camara, q, movil }) {
 
   // ---- cada fotograma
   let actual = null, cuenta = 0, relampago = 0, siguienteRayo = 0, intensidadLluvia = 0;
+  // (el suelo mojado, 15-11-2026, la revisión del juego: con lluvia el suelo seguía seco. Los materiales del suelo de la
+  // calle —asfalto, baldosas, adoquines, bordillos, rigolas, patios—, de materiales.glb, que usan también las zonas)
+  let mojado = 0, mojadoPuesto = -1, suelos = null;
+  const mojar = (dt, llueve) => {
+    mojado = Math.max(0, Math.min(1, mojado + (llueve > 0.03 ? dt / 90 * Math.min(1, llueve * 3) : -dt / 600)));
+    if (Math.abs(mojado - mojadoPuesto) < 0.02 && !(mojado === 0 && mojadoPuesto > 0)) return;
+    if (!suelos) {
+      suelos = [];
+      for (const a of app.assets.list()) if (a.type === 'container' && /^parte\d/.test(a.name || '')) for (const m of a.resource?.materials || []) {
+        const mt = m.resource; if (mt && /^(asfalto|baldosa|adoquin|bordillo|rigola|patio)/.test(mt.name)) suelos.push({ mt, d: mt.diffuse.clone(), g: mt.gloss, sp: mt.specularityFactor ?? 1 });
+      }
+    }
+    mojadoPuesto = mojado;
+    for (const s_ of suelos) {
+      const k = 1 - 0.38 * mojado; s_.mt.diffuse.set(s_.d.r * k, s_.d.g * k, s_.d.b * k);
+      s_.mt.gloss = s_.g + (0.82 - s_.g) * 0.85 * mojado; if (s_.mt.specularityFactor !== undefined) s_.mt.specularityFactor = s_.sp + (1 - s_.sp) * mojado;
+      s_.mt.update();
+    }
+  };
   const cielo = new Color();
   app.on('update', (dt) => {
     if ((cuenta++ % 30) === 0) actual = deAhora();
@@ -122,11 +142,17 @@ export function montarTiempo({ app, reloj, camara, q, movil }) {
     const niebla = w.codigo === 45 || w.codigo === 48 ? 1 : Math.max(0, Math.min(1, (3000 - w.visibilidad) / 2800));
     // lo que apagan las nubes y lo gris de la bruma, para el reloj (src/reloj.js)
     const cl = reloj.clima, antes = cl.sol + cl.cielo * 7 + cl.niebla * 13 + cl.gris * 29;
-    cl.sol = 1 - 0.82 * Math.pow(nubes, 1.6) * (0.55 + 0.45 * bajas) - 0.1 * llueve;
-    cl.cielo = 1 - 0.45 * nubes * (0.5 + 0.5 * bajas) - 0.15 * llueve;
+    // (con el cielo cubierto, casi sin sol directo: antes quedaba al 45-55 % y había sombras duras bajo un cielo gris. La luz
+    // del cielo, en cambio, baja poco: un día cubierto es claro, de luz blanca que viene de todas partes. 15-11-2026)
+    const tapa = Math.max(0, Math.min(1, (nubes - 0.3) / 0.65));
+    cl.sol = Math.max(0.04, 1 - (0.8 + 0.15 * bajas) * Math.pow(tapa, 1.3) - 0.1 * llueve);
+    cl.cielo = 1 - 0.18 * nubes * bajas - 0.15 * llueve;
     cl.niebla = niebla * 9 + llueve * 1.8 + nieva * 2.5;
     cl.gris = Math.min(1, nubes * bajas * 0.8 + llueve * 0.5 + niebla * 0.6);
     cl.texto = `${Math.round(w.temp)}° · ${CIELO(w.codigo, w.nubes)}`;
+    cl.lluvia = Math.max(llueve, nieva, tormenta ? 0.6 : 0);   // (para la gente, src/gente.js: con lluvia, menos en la calle y con paraguas)
+    // el suelo mojado: más oscuro y más brillante mientras llueve; se moja en un par de minutos y se seca despacio
+    mojar(dt, llueve);
     if (Math.abs(cl.sol + cl.cielo * 7 + cl.niebla * 13 + cl.gris * 29 - antes) > 0.01) reloj.aplicar(true);
     // las nubes: la textura según lo cerrado (rehecha al cambiar un 4 %), corriendo con el viento, y su color según la luz
     const cubre = Math.round(Math.min(1, nubes * 1.05) * 25) / 25;

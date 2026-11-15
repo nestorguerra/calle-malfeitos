@@ -915,13 +915,39 @@ const pide = { x: 0, z: 0, t: 0 };
 // suelo de abajo a 13 cm bajo su centro: para el controlador iba en el aire, donde casi no acelera, y el roce la dejaba
 // quieta. Ahora, si el rayo del centro no da con nada, se prueban otros cuatro a 20 cm, que dan con el canto)
 { const sysR = app.systems.rigidbody, rayo0 = sysR.raycastFirst.bind(sysR), ra = new Vec3(), rb = new Vec3(), sinElla = { filterCallback: (e) => e !== ctrl && !e.tags?.has('gente') };
+  // (y la cámara, con un abanico de cinco rayos —el del centro y cuatro a los bordes de lo que ve, 30 cm a los lados y 20
+  // arriba y abajo— y sin contar a la gente: con uno solo, rozando una esquina o el marco de una puerta la cámara se metía en
+  // el muro y se veía a través, como el interior de la iglesia desde la calle. 15-11-2026, la revisión del juego)
+  const rc = new Vec3(), pc_ = new Vec3(), hitCam = { point: new Vec3() };
+  const sondaCamara = (a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, L = Math.hypot(dx, dy, dz) || 1, hz = Math.hypot(dx, dz) || 1;
+    const lx = -dz / hz, lz = dx / hz; let mejor = L;
+    for (const [u, w] of [[0, 0], [0.3, 0], [-0.3, 0], [0, 0.2], [0, -0.2]]) {
+      const g = rayo0(a, rc.set(b.x + lx * u, b.y + w, b.z + lz * u), sinElla);
+      if (g) mejor = Math.min(mejor, pc_.copy(g.point).sub(a).dot(rc.set(dx / L, dy / L, dz / L)));
+    }
+    if (mejor >= L - 1e-3) return null;
+    hitCam.point.set(a.x + dx / L * mejor, a.y + dy / L * mejor, a.z + dz / L * mejor); return hitCam;
+  };
   const rayoSuelo = (a, b, op) => {
+    { const c0 = ctrl.getPosition(); if (!op && Math.abs(a.x - c0.x) < 1e-3 && Math.abs(a.z - c0.z) < 1e-3 && a.y > c0.y + 0.3 && b.y > a.y - 30 && Math.hypot(b.x - a.x, b.z - a.z) > 0.3) return sondaCamara(a, b); }
     const h = rayo0(a, b, op); if (h || op) return h;
     const c = ctrl.getPosition();   // (solo el del suelo: desde el centro de la cápsula, en vertical hacia abajo)
     if (Math.abs(a.x - c.x) > 1e-4 || Math.abs(a.z - c.z) > 1e-4 || Math.abs(a.y - c.y) > 1e-4 || Math.abs(b.x - a.x) > 1e-4 || Math.abs(b.z - a.z) > 1e-4 || b.y >= a.y) return h;
     for (const [ox, oz] of [[0.2, 0], [-0.2, 0], [0, 0.2], [0, -0.2]]) { const g = rayo0(ra.set(a.x + ox, a.y, a.z + oz), rb.set(b.x + ox, b.y, b.z + oz), sinElla); if (g) return g; }
     return null;
   };
+  tpc.cameraCollisionPadding = Math.max(tpc.cameraCollisionPadding || 0, 0.35);
+  // (y sin distancia mínima: el controlador no la dejaba a menos de 0,4 m del personaje, y en un portal estrecho, con la
+  // pared a 0,45 m —la puerta de la iglesia—, la empujaba a través del muro. Ahora se queda delante de la pared aunque sea
+  // casi en la cabeza de la chica, que entonces no se dibuja: se ve como desde sus ojos hasta salir del estrecho)
+  tpc.cameraMinDistance = 0.1;
+  let ocultaCerca = false;
+  app.on('update', () => {
+    const d = tpc._clampedDistance; if (d === undefined || !tpc.enabled) return;
+    const quiere = d < (ocultaCerca ? 0.7 : 0.6);
+    if (quiere !== ocultaCerca) { ocultaCerca = quiere; for (const r of muneco.findComponents('render')) for (const mi of r.meshInstances) mi.visible = !quiere; }
+  });
   const upd = tpc.update;
   tpc.update = function (dt) { sysR.raycastFirst = rayoSuelo; try { return upd.call(this, dt); } finally { sysR.raycastFirst = rayo0; } };
 }

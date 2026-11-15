@@ -139,6 +139,14 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     const deAparcamiento = (k) => /^coche_iglesia/.test(k.c.nodo) || densos.includes(k) || densos.some((o) => d_(o, k) < 8);
     for (const k of conCaja) {
       const c = k.caja;
+      // (y los que tienen una pared dentro de su caja, por delante, por detrás o a un lado: metidos en una casa. Un rayo
+      // desde el centro, a 0,7 m del suelo; la revisión del pueblo daba uno, un Polo con el morro en el pico de una casa)
+      const ym = c.y0 + 0.7;
+      // (tres rayos por cada lado —por el medio y cerca de las dos esquinas—, desde la línea del centro hacia fuera)
+      const dentro = (ux, uz, medio, ox, oz) => { const x0 = c.x + ox, z0 = c.z + oz, h = sys.raycastFirst(new Vec3(x0, ym, z0), new Vec3(x0 + ux * medio, ym, z0 + uz * medio), sinCoches); return h && Math.hypot(h.point.x - x0, h.point.z - z0) < medio - 0.15; };
+      const lx = -c.dz, lz = c.dx, metido = [-0.7, 0, 0.7].some((f) => dentro(c.dx, c.dz, c.L / 2, lx * f * c.W / 2, lz * f * c.W / 2) || dentro(-c.dx, -c.dz, c.L / 2, lx * f * c.W / 2, lz * f * c.W / 2))
+        || [-0.4, 0, 0.4].some((f) => dentro(lx, lz, c.W / 2, c.dx * f * c.L, c.dz * f * c.L) || dentro(-lx, -lz, c.W / 2, c.dx * f * c.L, c.dz * f * c.L));
+      if (metido) { sueltos.push(k); continue; }
       if (deAparcamiento(k)) continue;
       const s = sys.raycastFirst(new Vec3(c.x, 3, c.z), new Vec3(c.x, -2, c.z), sinCoches), y = (s ? s.point.y : c.y0) + 0.06;
       let cerca = false;
