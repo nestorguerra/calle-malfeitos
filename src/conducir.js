@@ -126,16 +126,20 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     cajas.push(c); k.caja = c;
   }
   // (fuera los coches aparcados en medio de una explanada o de un cruce: sin bordillo, pared ni acera a menos de 3 m a
-  // ningún lado, medido con rayos a 6 cm del asfalto, y sin ser de un aparcamiento de verdad —siete coches o más a menos de
-  // 9 m, como el de la plaza de la iglesia o el de filas junto a la avenida—. Eran 13: una fila de seis en mitad de un
-  // cruce, cuatro en una explanada, dos sueltos. 15-11-2026, el usuario: «en algunas calles hay coches parados en mitad
+  // ningún lado, medido con rayos a 6 cm del asfalto, y sin ser de un aparcamiento de verdad —nueve coches o más a menos de
+  // 15 m, como el de filas junto a la avenida, o puestos a propósito, como los de la plaza de la iglesia—. Son 12: una fila
+  // de seis en mitad de un cruce, cuatro en una explanada, dos sueltos. 15-11-2026, el usuario: «en algunas calles hay coches parados en mitad
   // de la calle… que estén aparcados de forma correcta y en sus estacionamientos adecuados». ?enmedio=1, se quedan)
   if (q.get('enmedio') !== '1') {
     const sinCoches = { filterCallback: (e_) => e_.name !== 'caja_coche' && e_.name !== 'coche_que_pasa' && e_.name !== 'controlador' && !e_.tags?.has('gente') };
-    const sueltos = [];
-    for (const k of coches.coches) {
-      const c = k.caja; if (!c) continue;
-      if (coches.coches.filter((o) => o !== k && o.caja && Math.hypot(o.caja.x - c.x, o.caja.z - c.z) < 9).length >= 7) continue;
+    const sueltos = [], d_ = (a_, b_) => Math.hypot(a_.caja.x - b_.caja.x, a_.caja.z - b_.caja.z);
+    // (de un aparcamiento: los de la plaza de la iglesia, puestos uno a uno a propósito; los que tienen nueve coches o más a
+    // menos de 15 m, y los que están a menos de 8 m de uno de esos, como el de la esquina de una fila)
+    const conCaja = coches.coches.filter((k) => k.caja), densos = conCaja.filter((k) => conCaja.filter((o) => o !== k && d_(o, k) < 15).length >= 9);
+    const deAparcamiento = (k) => /^coche_iglesia/.test(k.c.nodo) || densos.includes(k) || densos.some((o) => d_(o, k) < 8);
+    for (const k of conCaja) {
+      const c = k.caja;
+      if (deAparcamiento(k)) continue;
       const s = sys.raycastFirst(new Vec3(c.x, 3, c.z), new Vec3(c.x, -2, c.z), sinCoches), y = (s ? s.point.y : c.y0) + 0.06;
       let cerca = false;
       for (const sg of [1, -1]) for (const u of [-0.3, 0, 0.3]) {
