@@ -518,6 +518,7 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
     const orden = coches.map((k) => [k, k.lejos.getPosition().distance(p)]).sort((x, y) => x[1] - y[1]);
     orden.forEach(([k, d], i) => {
       if (k.conducido) return; // (el que se está conduciendo: src/conducir.js)
+      if (k.obra) { if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope; return; }   // (un contenedor de obra, src/obras.js: solo se apaga de lejos)
       poner(k, d < dist && i < maxCerca); if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope;
       if (k.solas) for (const s of k.solas) s.mi.visible = d < 40 && !(k.cerca?.enabled && !s.queda);
     });

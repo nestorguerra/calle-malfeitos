@@ -481,7 +481,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     if (est.modo !== 'pie' || !ctrl.enabled || (modoChica && modoChica !== 'pie')) { est.cerca = null; return; }
     const p = ctrl.getPosition(); let mejor = null, dm = 1.1;
     for (const k of coches.coches) {
-      const c = k.caja; if (!c || k.conducido || !k.lejos.enabled) continue;
+      const c = k.caja; if (!c || k.conducido || k.obra || !k.lejos.enabled) continue;   // (a un contenedor de obra no se sube nadie)
       const rx = p.x - c.x, rz = p.z - c.z; if (rx * rx + rz * rz > 16) continue;
       const lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx; // (en sus ejes: largo y ancho)
       const d = Math.hypot(Math.max(0, Math.abs(lx) - c.L / 2), Math.max(0, Math.abs(lz) - c.W / 2));

@@ -12,6 +12,7 @@ import {
 } from 'playcanvas';
 import { CameraFrame } from 'playcanvas/scripts/esm/camera-frame.mjs';
 import { activarRelieve, cargarRelieve } from './relieve.js';
+import { ponerObras } from './obras.js';
 import { ShadowCatcher } from 'playcanvas/scripts/esm/shadow-catcher.mjs';
 import { SpzParser } from 'playcanvas/scripts/esm/parsers/spz-parser.mjs';
 import { ThirdPersonController } from 'playcanvas/scripts/esm/third-person-controller.mjs';
@@ -1095,6 +1096,8 @@ if (escena.vida && q.get('vida') !== '0') {
     // (subirse a un coche aparcado y conducirlo: src/conducir.js)
     try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
     catch (e) { console.warn('conducir:', e); }
+    // (los contenedores de escombros de las obras, en el sitio de cuatro coches: src/obras.js)
+    try { const o = ponerObras({ app, coches: c, q }); if (window.foto) window.foto.obras = o; } catch (e) { console.warn('obras:', e); }
   }).catch((e) => { console.warn('coches:', e); if (window.foto && !('coches' in window.foto)) window.foto.coches = null; });   // (null si falla: la entrada desde la web no espera 20 s)
   // la gente del pueblo, según la hora (src/gente.js; docs/gente.md): después de lo demás, que no retrase la carga
   if (escena.gente) trasListo.then(() => montarGente({ app, vida, carpeta: escena.gente, glb, camara, chica: ctrl, reloj, q, movil, iglesia: escena.iglesiaSitios,
