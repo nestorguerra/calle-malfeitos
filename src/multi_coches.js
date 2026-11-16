@@ -121,13 +121,14 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   for (const ev of ['pointerdown', 'pointerup', 'touchstart']) bBajar.addEventListener(ev, (e) => e.stopPropagation());
   bBajar.addEventListener('click', () => bajarCopiloto());
   const ayuda = document.getElementById('ayuda'); let ayudaAntes = null;
+  const AYUDA_COPI = movil ? 'Vas de copiloto · arrastra para mirar' : 'Vas de copiloto · arrastra con el ratón para mirar · E bajar';
   function subirCopiloto(o) {
     const rc = remotos.get(o.id); if (!rc || copi || !ctrl.enabled) return false;
     if (window.foto?.acciones?.estado?.()?.modo && window.foto.acciones.estado().modo !== 'pie') return false;
     tpc?.fire?.('speed', 0); ctrl.enabled = false;
     copi = { id: o.id, k: rc.k, pos: camara.getPosition().clone(), giro: 0, alto: 0, quieto: 0 };
     bBajar.hidden = false;
-    if (ayuda) { ayudaAntes = ayuda.textContent; ayuda.textContent = movil ? 'Vas de copiloto · arrastra para mirar' : 'Vas de copiloto · arrastra con el ratón para mirar · E bajar'; }
+    if (ayuda) { ayudaAntes = ayuda.textContent; ayuda.textContent = AYUDA_COPI; }
     return true;
   }
   function bajarCopiloto() {
@@ -206,7 +207,11 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
     if (copi) {
       const o = otros.get(copi.id);
       if (!o || o.p.m !== 7 || o.p.co !== copi.k.c.nodo) bajarCopiloto(); // (quien conduce se ha bajado o se ha ido)
-      else camaraCopiloto(dt);
+      else {
+        camaraCopiloto(dt);
+        // (la ayuda de abajo, la de ir de copiloto: src/conducir.js la vuelve a poner a la de andar al quitar su botón)
+        if (ayuda && ayuda.textContent !== AYUDA_COPI) ayuda.textContent = AYUDA_COPI;
+      }
     }
   });
 
