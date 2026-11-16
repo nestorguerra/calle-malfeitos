@@ -379,7 +379,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     let uno = null, otro = null;
     // (una persona de verdad al lado —el multijugador—: hablar con ella gana a un vecino o un asiento a la misma distancia)
     const h = personas?.(p), dh = h ? coste(h.x, h.z) - 0.3 : 99;
-    if (h && dh < dv && dh < da) uno = { texto: 'Hablar con ' + h.nombre, f: h.hablar };
+    if (h && dh < dv && dh < da) uno = { texto: h.texto || 'Hablar con ' + h.nombre, f: h.f || h.hablar };   // (o subir de copiloto: src/multi_coches.js)
     else if (v && (dv < da || !a)) uno = { texto: 'Hablar', f: () => hablar(v) };
     else if (a) uno = { texto: 'Sentarse', f: () => sentarse(a) };
     if (lampadarioCerca(p)) { otro = uno; uno = { texto: 'Encender una vela', f: encenderVela }; }

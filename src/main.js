@@ -1108,9 +1108,10 @@ if (escena.vida && q.get('vida') !== '0') {
       conducir: () => window.foto?.conducir?.estado?.(), reloj, personas: (p) => window.foto?.multi?.cerca?.(p) || null, alSaludar: () => window.foto?.multi?.gesto?.(1) }) : null))
     .then((a) => { if (window.foto) window.foto.acciones = a; }).catch((e) => console.warn('acciones:', e));
   // el multijugador: los demás que están en el pueblo, hablar con ellos, la hora de la sala y «Guareña, ahora» (src/multi.js;
-  // docs/multijugador.md). Con la chica de serie, que es la figura con la que se ve a los demás
-  if (chica && !mio && vida) trasListo.then(() => { try { const m = montarMulti({ app, q, escena: nombre, ctrl, muneco, camara, reloj, vida, personaje: A.personaje,
-    clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388' }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
+  // docs/multijugador.md). Con la chica de serie o con el personaje propio (a los demás se les ve con el suyo:
+  // src/multi_figuras.js)
+  if (chica && vida) trasListo.then(() => { try { const m = montarMulti({ app, q, escena: nombre, ctrl, muneco, tpc, camara, reloj, vida, personaje: mio ? null : A.personaje,
+    clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388', mio: !!mi, estadoMio: mi?.estado || null, glb }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
   // (la sombra de contacto bajo los pies de la chica y de los vecinos de cerca: src/sombras.js)
   if (modelo) { try { montarSombras({ app, muneco, ctrl, camara, gente: () => window.foto?.gente, reloj, q }); } catch (e) { console.warn('sombras de contacto:', e); } }
 }

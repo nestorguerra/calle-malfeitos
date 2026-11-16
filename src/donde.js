@@ -5,7 +5,7 @@
 // calle, en CALLES), l (el sitio, en LUGARES) y m (qué hace, en HACE): así el servidor no lleva texto.
 const sinTramo = (n) => n.replace(/\s*\(\d+\)$/, '');
 // qué hace (m): la figura es la de la chica, de ahí el femenino
-export const HACE = ['quieta', 'paseando', 'corriendo', 'sentada', 'bailando', 'rezando', 'hablando', 'conduciendo', 'encendiendo una vela', 'saltando'];
+export const HACE = ['quieta', 'paseando', 'corriendo', 'sentada', 'bailando', 'rezando', 'hablando', 'conduciendo', 'encendiendo una vela', 'saltando', 'de copiloto'];
 
 export function montarDonde({ vida, reloj }) {
   const CALLES = [], deCalle = [];

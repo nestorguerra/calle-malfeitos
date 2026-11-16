@@ -14,6 +14,10 @@
 //   tras una esquina o lejos) y se van cuando quedan lejos o entran en un portal, una tienda o la iglesia sin que se vea.
 // - Andan con su paso medido (sin patinar: andar 1,33 m/s, pasear 1,07, los niños corriendo 2,16), se apartan de la chica
 //   y del coche, y los más cercanos llevan una cápsula para que la chica no los atraviese.
+// - Con otras personas jugando cerca (el multijugador, src/multi_gente.js; docs/multijugador.md, fase 2), los mismos
+//   vecinos para todos: los mueve el juego del primero que llegó (el «anfitrión»), alrededor de su chica y de la de cada
+//   uno de los que le siguen —sin aparecer ni irse a la vista de ninguno—, y los demás (las «réplicas») los ven con lo que
+//   les llega, 300 ms por detrás. Lo que se hace con un vecino ajeno (hablarle, que te acompañe…) se le pide al anfitrión.
 // Para las pruebas y para hablar con ellos (src/acciones.js): window.foto.gente. ?gente=0, sin gente; ?gente=2, el doble;
 // ?gentetope=, ?genteradio=.
 import { Asset, BLEND_NONE, Color, Entity, Quat, StandardMaterial, Vec3 } from 'playcanvas';
@@ -29,6 +33,8 @@ const CURVA = [[0, 0.004], [2, 0.0015], [5, 0.001], [6.5, 0.004], [7.5, 0.014], 
 const MEZCLA = [[0, [0.05, 0.45, 0.5, 0]], [7, [0.12, 0.6, 0.12, 0.16]], [9.5, [0.45, 0.43, 0.06, 0.06]], [13.5, [0.24, 0.4, 0.1, 0.26]], [15, [0.2, 0.5, 0.2, 0.1]],
   [17, [0.3, 0.25, 0.15, 0.3]], [20.5, [0.25, 0.42, 0.28, 0.05]], [22.5, [0.04, 0.46, 0.5, 0]]];
 const TIPOS = ['mayor', 'adulto', 'joven', 'nino'];
+// los clips, por número (lo que se manda a los demás jugadores)
+export const CLIPS = ['quieto', 'andar', 'pasear', 'correr', 'charla', 'sentado', 'charla_sentado', 'sentarse', 'levantarse', 'sentado_iglesia'];
 const PASO = { andar: 1.33, pasear: 1.07, correr: 2.16 }; // (m/s a los que pisan sus clips sin patinar: medido con el pie que apoya)
 // la misa (Santa María): de diario a las siete de la tarde (en verano, a las ocho) y el domingo a las doce
 const misaHora = (dia, mes) => (dia === 0 ? 12 : (mes >= 6 && mes <= 9) ? 20 : 19);
@@ -237,6 +243,10 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
 
   // ---- quién hay
   const gente = []; // (los vecinos que existen ahora)
+  // (el multijugador: «solo» o «anfitrion», los mueve este juego —alrededor de la chica y de «otros», los que le siguen:
+  // [{id, x, y, z, r}]—; «replica», los mueve el de otro y aquí se ven con lo que llega)
+  let modo = 'solo', otros = [], sigId = 1, alPedir = null;
+  const replicas = new Map();
   const bancosLibres = (vida.bancos || []).map((b) => ({ ...b, sitios: (b.largo > 2 ? [-0.65, 0, 0.65] : [-0.45, 0.45]).map((u) => ({ u, quien: null })) }));
   const sillas = (vida.sillas || []).map((s) => ({ ...s, quien: null }));
   const asientosIglesia = (sitiosIglesia?.bancos || []).map((s) => ({ ...s, quien: null }));
@@ -261,7 +271,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   // (si se le ve, aunque sea un poco: la cabeza, la cintura o los pies dentro de la vista y sin una casa delante. Con un solo
   // rayo a la cabeza, un balcón, una farola o un árbol en medio daban por tapado a alguien que se veía entero, y aparecía o
   // desaparecía delante de la chica, junto a una pared: «la gente sale de las paredes y de los edificios», 15-11-2026)
-  const enVista = (x, y, z) => {
+  const enMiVista = (x, y, z) => {
     const c = cam();
     if (Math.hypot(x - c.x, z - c.z) > 110) return false;
     const fr = camara.camera.frustum;
@@ -272,6 +282,23 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     }
     return false;
   };
+
+  // (y si lo ve alguno de los que siguen a este juego: a menos de 25 m, siempre —su cámara puede mirar a cualquier lado—;
+  // más lejos, hasta 110 m, si está hacia donde va, a menos de 80° a cada lado, y sin una casa en medio)
+  const vistaDe = (o, x, y, z) => {
+    const dx = x - o.x, dz = z - o.z, d = Math.hypot(dx, dz);
+    if (d > 110) return false; if (d < 25) return true;
+    const r = (o.r || 0) * Math.PI / 180;
+    if ((dx * Math.sin(r) + dz * Math.cos(r)) / d < 0.17) return false;
+    const h = app.systems.rigidbody.raycastFirst(va.set(o.x, (o.y ?? 0) + 0.6, o.z), vb.set(x, y + 1.2, z));
+    return !(h && Math.hypot(h.point.x - x, h.point.z - z) > 1.5 && !h.entity?.tags?.has('gente'));
+  };
+  const enVista = (x, y, z) => enMiVista(x, y, z) || (otros.length > 0 && otros.some((o) => vistaDe(o, x, y, z)));
+  // (los sitios alrededor de los que hay vecinos: la chica y los que siguen a este juego)
+  const centros = () => (otros.length ? [yo(), ...otros] : [yo()]);
+  const dCentro = (x, z) => { const p = yo(); let d = Math.hypot(x - p.x, z - p.z); for (const o of otros) d = Math.min(d, Math.hypot(x - o.x, z - o.z)); return d; };
+  const personaCerca = (x, z, p) => { let m = p, d = Math.hypot(x - p.x, z - p.z); for (const o of otros) { const e = Math.hypot(x - o.x, z - o.z); if (e < d) { d = e; m = o; } } return m; };
+  const tope = () => (otros.length ? Math.min(60, Math.round(TOPE * 1.5)) : TOPE);
 
   // la hora, el día y el mes del juego
   const ahora = () => {
@@ -306,7 +333,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   const clipMisa = (v) => (v.info.clips || []).includes('sentado_iglesia') ? 'sentado_iglesia' : 'sentado';
   function nacer(pi, x, z, y = null) {
     const v = crear(pi); v.clip = null; v.clipYa = false;
-    Object.assign(v, { x, z, y: y ?? suelo(x, z), yaw: Math.random() * Math.PI * 2, estado: 'quieto', ruta: null, k: 0, lado: 0, fin: null, hasta: 0, desvio: 0, ocupado: false, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null, giroCab: 0, quiereIrse: false, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, sombra: undefined, antes: null, pt: null, puerta: null, fase: 0 });
+    Object.assign(v, { id: sigId++, replica: false, buf: null, sigueA: null, ocupadoPor: null, x, z, y: y ?? suelo(x, z), yaw: Math.random() * Math.PI * 2, estado: 'quieto', ruta: null, k: 0, lado: 0, fin: null, hasta: 0, desvio: 0, ocupado: false, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null, giroCab: 0, quiereIrse: false, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, sombra: undefined, antes: null, pt: null, puerta: null, fase: 0 });
     v.paso = PASO[v.info.tipo === 'mayor' ? 'pasear' : 'andar'] * azar(0.95, 1.04); v.clipAndar = v.info.tipo === 'mayor' ? 'pasear' : 'andar';
     v.raiz.setPosition(x, v.y, z); gente.push(v); return v;
   }
@@ -400,11 +427,15 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   };
 
   // ---- cuántos tocan alrededor de la chica, y el reparto de los papeles
-  let objetivo = 0, ultimaCuenta = -1e9, pesoLocal = 0;
+  let objetivo = 0, ultimaCuenta = -1e9, pesoLocal = 0, marca = 0;
+  const contado = new Uint32Array(n);
   function contar() {
-    const p = yo(); pesoLocal = 0;
-    cerca(p.x, p.z, RADIO, (j) => { if (Math.hypot(X[j] - p.x, Z[j] - p.z) < RADIO) pesoLocal += W[j]; });
-    const { h, d, m } = ahora();
+    pesoLocal = 0; marca++;
+    // (alrededor de la chica y de los que siguen a este juego, sin contar dos veces lo que comparten)
+    const cs = centros();
+    for (const p of cs) cerca(p.x, p.z, RADIO, (j) => { if (contado[j] !== marca && Math.hypot(X[j] - p.x, Z[j] - p.z) < RADIO) { contado[j] = marca; pesoLocal += W[j]; } });
+    const p = cs.find((c) => iglesiaCentro && Math.hypot(c.x - iglesiaCentro[0], c.z - iglesiaCentro[1]) < 45) || cs[0];
+    const { h, d, m } = ahora(), TOPE = tope();
     objetivo = Math.min(TOPE, Math.round(VECINOS * enLaCalle(h, d, m) * pesoLocal / WT * FACTOR * 2.2 * (1 - 0.65 * lluvia())));   // (con lluvia, menos en la calle)
     // (×2,2: los que se ven son los de la calle de verdad más los que están en la puerta de casa, en las terrazas y en los
     // corros, que en el plano de calles no cuentan; ver docs/gente.md)
@@ -413,8 +444,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   }
 
   // un sitio para que aparezca alguien: en la acera, a una distancia, donde no se vea
-  function sitioOculto(dmin, dmax, f = null) {
-    const p = yo();
+  function sitioOculto(dmin, dmax, f = null, p = yo()) {
     for (let t = 0; t < 25; t++) {
       const a = Math.random() * Math.PI * 2, r = azar(dmin, dmax), x = p.x + Math.sin(a) * r, z = p.z + Math.cos(a) * r;
       const i = nodoCerca(x, z, 10, f); if (i < 0) continue;
@@ -424,8 +454,8 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     }
     return null;
   }
-  function poblar(inicial = false) {
-    const { h, d } = ahora(), oscuro = (reloj?.noche ?? 0) > 0.6, mezcla = mezclaDe(h, d, oscuro), misa = enMisa(), p = yo();
+  function poblar(inicial = false, p = yo()) {
+    const { h, d } = ahora(), oscuro = (reloj?.noche ?? 0) > 0.6, mezcla = mezclaDe(h, d, oscuro), misa = enMisa();
     const dmin = inicial ? 6 : 28, dmax = RADIO * 0.95;
     // la misa: los bancos de la iglesia se van llenando desde 35 minutos antes (si la chica anda cerca). Donde no se ve,
     // aparecen ya sentados; si no, entran por una puerta, van por el pasillo hasta su fila y se sientan
@@ -455,7 +485,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     // (un grupo son de 2 a 4: para que los niños sean los que tocan y no el triple, solo una vez de cada tres)
     const llueve = lluvia() > 0.15;   // (con lluvia: ni niños jugando, ni bancos, ni sillas a la puerta, y pocos corros)
     if (!llueve && tipo === 'nino' && Math.random() < (oscuro ? 0.15 : 0.34) && (h > 16.5 && h < 21 || (d === 0 || d === 6) && h > 10.5 && h < 14) && plazasNodos.length) {
-      const s = sitioOculto(inicial ? 6 : 20, dmax, (j) => PLAZA[j] === 1);
+      const s = sitioOculto(inicial ? 6 : 20, dmax, (j) => PLAZA[j] === 1, p);
       if (s) { nuevoJugando(s.i); return; }
     }
     const r = Math.random();
@@ -482,7 +512,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     }
     // un corro (más a media mañana, a la salida de misa y al paseo de la tarde)
     if ((!llueve || Math.random() < 0.2) && r < quiereBanco + (tipo === 'mayor' ? 0.25 : 0.18)) {
-      const s = sitioOculto(inicial ? 5 : 22, dmax);
+      const s = sitioOculto(inicial ? 5 : 22, dmax, null, p);
       if (s) { const N_ = Math.random() < 0.65 ? 2 : 3, tipos = Array.from({ length: N_ }, (_, k) => (k === 0 ? tipo : TIPOS[pesar(mezcla.map((m, i) => (i === 3 ? 0 : m)))])); nuevoCorro(s.i, tipos); return; }
     }
     // salir de casa por la puerta, cerca de la chica (de día y a la tarde: de madrugada, casi nadie)
@@ -491,7 +521,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       if (pt) { salirPorPuerta(elegir(lista), pt); return; }
     }
     // andar: de dos en dos alguna vez (una pareja, una madre con su niño)
-    const s = sitioOculto(dmin, dmax); if (!s) return;
+    const s = sitioOculto(dmin, dmax, null, p); if (!s) return;
     const v = nuevoAndando(elegir(lista), s.i, s.lado);
     if (v && Math.random() < 0.22) {
       const t2 = tipo === 'nino' ? 'adulto' : Math.random() < 0.15 && tipo === 'adulto' ? 'nino' : tipo, l2 = deTipo[t2].filter((x) => ASSETS[x] && x !== v.pi);
@@ -518,23 +548,30 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     if (!listos.length) return;
     dt = Math.min(dt, 0.1);
     const tt = performance.now() / 1000, p = yo(), ec = conducir?.(), conduce = ec?.modo === 'conduciendo' && ec.pos ? { x: ec.pos[0], z: ec.pos[2] } : null;
+    // (los que mueve el juego de otro: solo verlos)
+    if (modo === 'replica') { moverReplicas(dt, tt, p); capsulas(p, conduce); return; }
     // contar y poblar, cada medio segundo (al principio, todos de golpe)
     reloj_ -= dt;
     if (reloj_ <= 0) {
       reloj_ = 0.5;
       if (tt - ultimaCuenta > 2) { contar(); ultimaCuenta = tt; }
-      const inicial = cuentaGente === 0;
+      const inicial = cuentaGente === 0, cs = centros();
       if (inicial) { for (let k = 0; k < objetivo * 2 && gente.length < objetivo; k++) poblar(true); cuentaGente = 1; }
-      else if (gente.length < objetivo) poblar(false);
-      // irse: lejos y sin que se vea, o demasiados
+      else if (gente.length < objetivo) poblar(false, cs[Math.floor(Math.random() * cs.length)]);
+      // irse: lejos (de la chica y de los que siguen a este juego) y sin que se vea, o demasiados
       for (const v of gente.slice()) {
-        const d = Math.hypot(v.x - p.x, v.z - p.z);
+        const d = dCentro(v.x, v.z);
         if (v.ocupado) continue;
         if ((d > RADIO + 15 && !enVista(v.x, v.y, v.z)) || d > RADIO + 45) { if (v.grupo) { for (const o of v.grupo.miembros.slice()) morir(o); } else morir(v); }
       }
       if (gente.length > objetivo + 4) {
-        const lejos = gente.filter((v) => !v.ocupado && !enVista(v.x, v.y, v.z)).sort((a, b) => Math.hypot(b.x - p.x, b.z - p.z) - Math.hypot(a.x - p.x, a.z - p.z));
+        const lejos = gente.filter((v) => !v.ocupado && !enVista(v.x, v.y, v.z)).sort((a, b) => dCentro(b.x, b.z) - dCentro(a.x, a.z));
         if (lejos[0]) morir(lejos[0]);
+      }
+      // (lo que pidió alguien que ya no sigue a este juego —se fue, o se alejó—: se suelta; y nadie ocupado más de 3 minutos)
+      for (const v of gente) {
+        if (v.ocupadoPor && (!otros.some((o) => o.id === v.ocupadoPor) || tt - (v.ocupadoT || 0) > 180)) { v.ocupadoPor = null; api.soltar(v); }
+        if (v.sigueA && !otros.some((o) => o.id === v.sigueA)) { v.sigueA = null; v.seguirHasta = 0; }
       }
       // la misa: al acabar, a la calle
       const misa = enMisa();
@@ -554,7 +591,11 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       for (const v of gente) { const cs = Math.hypot(v.x - p.x, v.z - p.z) < 32; if (v.sombra !== cs) { v.sombra = cs; for (const r of v.e.findComponents('render')) r.castShadows = cs; } }
     }
 
-    for (const v of gente) actualizar(v, dt, tt, p, conduce);
+    // (cada uno mira y se aparta de la persona que tiene más cerca; el que acompaña a alguien, a esa)
+    for (const v of gente) {
+      const q_ = !otros.length ? p : v.sigueA ? (otros.find((o) => o.id === v.sigueA) || p) : (v.estado === 'seguir' || v.fin?.tipo === 'seguir') ? p : personaCerca(v.x, v.z, p);
+      actualizar(v, dt, tt, q_, q_ === p ? conduce : null);
+    }
     // los corros que se deshacen: cada uno, a lo suyo
     for (const v of gente) if (v.grupo && !v.grupo.jugar && tt > v.grupo.hasta && v.estado === 'charla' && !v.ocupado) {
       const g = v.grupo; for (const o of g.miembros) { o.grupo = null; if (o.ocupado) continue; const d = destino(o); if (!d || !irA(o, d[0], d[1], d[2])) o.quiereIrse = true; }   // (el que está hablando con la chica se queda: con una charla larga se ponía a «andar» sin moverse)
@@ -838,22 +879,25 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     // el más cercano a un punto, delante de la chica si se da su rumbo
     cercano: (x, z, r = 2.2) => { let m = null, dm = r; for (const v of gente) { if (v.estado === 'llegado') continue; const d = Math.hypot(v.x - x, v.z - z); if (d < dm) { dm = d; m = v; } } return m; },
     hablar: (v, x, z) => {
+      if (v?.replica) { v.ocupado = true; alPedir?.(0, v, x, z); return; }
       v.ocupado = true; v.antes = { clip: v.clip, estado: v.estado };
       v.mira = [x - v.x, z - v.z];
       const sentado = v.estado === 'sentado' || v.estado === 'misa';
       if (!sentado) { v.mira = [x - v.x, z - v.z]; poner(v, 'charla', 0.3); } else { v.mira = null; poner(v, 'charla_sentado', 0.3); }
       if (v.grupo && !v.grupo.jugar) v.grupo.hasta += 30;
     },
-    soltar: (v) => { if (!v) return; v.ocupado = false; v.mira = null; if (v.antes) poner(v, v.antes.clip === 'charla' ? 'quieto' : v.antes.clip, 0.4); },
-    saludar: (v) => v.saludo?.empezar(),
+    soltar: (v) => { if (!v) return; if (v.replica) { v.ocupado = false; alPedir?.(1, v, v.x, v.z); return; } v.ocupado = false; v.mira = null; if (v.antes) poner(v, v.antes.clip === 'charla' ? 'quieto' : v.antes.clip, 0.4); },
+    saludar: (v) => { v?.saludo?.empezar(); if (v?.replica) alPedir?.(2, v, v.x, v.z); },
     // lo que puede decidir un vecino al hablar con la chica (src/ia.js): acompañarla un rato, irse a lo suyo o sentarse
     acompañar: (v, segundos = 90) => {
+      if (v?.replica) { v.ocupado = false; alPedir?.(3, v, v.x, v.z); return; }
       if (!v) return; v.ocupado = false; v.mira = null; v.seguirHasta = performance.now() / 1000 + segundos;
       if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); v.grupo = null; }
       if (v.estado === 'sentado' || v.estado === 'misa') { v.sitio && (v.sitio.quien = null); v.sitio = null; poner(v, 'levantarse', 0.2); v.estado = 'levantandose'; v.t = 1.1; v.luego = 'seguir'; }
       else { v.estado = 'seguir'; v.fin = null; poner(v, 'quieto', 0.3); }
     },
     irse: (v) => {
+      if (v?.replica) { v.ocupado = false; alPedir?.(4, v, v.x, v.z); return; }
       if (!v) return; v.ocupado = false; v.mira = null; v.seguirHasta = 0;
       if (v.grupo) { v.grupo.miembros = v.grupo.miembros.filter((o) => o !== v); v.grupo = null; }
       if (v.estado === 'sentado' || v.estado === 'misa') { v.sitio && (v.sitio.quien = null); v.sitio = null; poner(v, 'levantarse', 0.2); v.estado = 'levantandose'; v.t = 1.1; return; }
@@ -863,6 +907,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       v.fin = { x: v.x + dx / l * 14, z: v.z + dz / l * 14, tipo: 'paseo' }; v.puntos = null; v.ruta = null; v.t = 0; v.estado = 'andar_directo'; poner(v, v.clipAndar, 0.25);
     },
     sentarse: (v) => {
+      if (v?.replica) { if (v.estado === 'sentado' || v.estado === 'misa') return false; v.ocupado = false; alPedir?.(5, v, v.x, v.z); return true; }
       if (!v || v.estado === 'sentado' || v.estado === 'misa') return false;
       const b = bancosLibres.filter((b) => Math.hypot(b.p[0] - v.x, b.p[2] - v.z) < 25 && b.sitios.some((s) => !s.quien)).sort((a, c) => Math.hypot(a.p[0] - v.x, a.p[2] - v.z) - Math.hypot(c.p[0] - v.x, c.p[2] - v.z))[0];
       if (!b) return false;
@@ -896,6 +941,37 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     seVe: (x, y, z) => enVista(x, y, z), puertas: () => abiertas.map((d) => ({ p: d.pt.p, k: d.k })), _red: { X, Z, VEC, CALLE, OF, PARED, BORDE, n, carril, hayPaso, nombres: C.map((c) => c.nombre) },
     salirDeCasa: (x, z, dmin = 3, dmax = 30) => { const pt = puertaCerca(x, z, dmin, dmax), l = deTipo.adulto.filter((i) => ASSETS[i]); return pt && l.length ? salirPorPuerta(elegir(l), pt) : null; },
     entrarEnCasa: (v, x, z, pt0 = null) => { const pt = pt0 || puertaCerca(x, z, 0, 30); if (!pt || !v || !llegada(pt)) return null; v.ocupado = false; const d = [pt.p[0] + pt.n[0] * 0.5, pt.p[2] + pt.n[1] * 0.5]; return irA(v, d[0], d[1], { tipo: 'portal', mira: [-pt.n[0], -pt.n[1]], pt, nodo: pt._nodo }) ? pt : null; },
+    // ---- el multijugador (src/multi_gente.js)
+    modo: (m) => cambiarModo(m),
+    get modoActual() { return modo; },
+    // los que siguen a este juego: [{id, x, y, z, r}]
+    centros: (l) => { otros = Array.isArray(l) ? l : []; },
+    // los de alrededor de los que siguen a este juego, para mandárselos: [id, cuerpo, x, y, z (cm), rumbo (centésimas de
+    // radián), clip, señales (1 paraguas, 2 saludando, 4 hablando con alguien, 8 sentado)]
+    instantanea: () => {
+      if (modo === 'replica' || !otros.length) return null;
+      const l = [];
+      for (const v of gente) {
+        if (v.replica || !otros.some((o) => Math.hypot(v.x - o.x, v.z - o.z) < RADIO + 30)) continue;
+        l.push([v.id, v.pi, Math.round(v.x * 100), Math.round(v.y * 100), Math.round(v.z * 100), Math.round(angulo(v.yaw) * 100), Math.max(0, CLIPS.indexOf(v.clip)),
+          (v.paraguas?.enabled ? 1 : 0) | (v.saludo?.activo ? 2 : 0) | (v.ocupado ? 4 : 0) | (/sentado|misa/.test(v.estado) ? 8 : 0)]);
+      }
+      return l.slice(0, 60);
+    },
+    recibir: (l, origen) => recibir(l, origen),
+    // lo que hay que hacer cuando, siendo réplica, se hace algo con un vecino (lo hace el anfitrión)
+    alPedir: (f) => { alPedir = f; },
+    // lo que pide alguien que sigue a este juego: 0 hablarle, 1 soltarle, 2 saludar, 3 que le acompañe, 4 que se vaya, 5 que se siente
+    pedido: (op, id, x, z, quien) => {
+      const v = gente.find((o) => o.id === id && !o.replica); if (!v || modo === 'replica') return false;
+      if (op === 0) { api.hablar(v, x, z); v.ocupadoPor = quien; v.ocupadoT = performance.now() / 1000; }
+      else if (op === 1) { v.ocupadoPor = null; api.soltar(v); }
+      else if (op === 2) v.saludo?.empezar();
+      else if (op === 3) { v.ocupadoPor = null; api.acompañar(v, 90); v.sigueA = quien; }
+      else if (op === 4) { v.ocupadoPor = null; api.irse(v); }
+      else if (op === 5) { v.ocupadoPor = null; if (!api.sentarse(v)) api.soltar(v); }
+      return true;
+    },
     // (para las pruebas, tools/prueba_gente.py) empezar de cero con la hora y el sitio de ahora, como al cargar
     reiniciar: () => { for (const v of gente.slice()) morir(v); cuentaGente = 0; ultimaCuenta = -1e9; reloj_ = 0; },
     // si lo que hace cada uno tiene sentido: nadie encima de un coche aparcado, flotando o hundido; y dónde está cada uno,
@@ -918,6 +994,85 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       return r;
     },
   };
+  // ---- las réplicas: los vecinos que mueve el juego de otro (src/multi_gente.js)
+  // (un cuerpo que no está en este aparato —en el móvil hay 6 de los 12—: otro de la misma edad y sexo)
+  const sustituto = (pi) => {
+    const i = info[pi]; if (!i) return listos[0] ?? null;
+    return listos.find((x) => info[x].tipo === i.tipo && info[x].sexo === i.sexo) ?? listos.find((x) => info[x].tipo === i.tipo) ?? listos[0] ?? null;
+  };
+  function quitarReplica(v) {
+    v.raiz.enabled = false; POOL[v.pi].push(v); replicas.delete(v.id);
+    const i = gente.indexOf(v); if (i >= 0) gente.splice(i, 1);
+  }
+  let origenR = null;
+  function recibir(l, origen = null) {
+    if (modo !== 'replica' || !Array.isArray(l)) return;
+    // (de otro anfitrión: los números de sus vecinos son otros)
+    if (origen !== origenR) { for (const v of [...replicas.values()]) quitarReplica(v); origenR = origen; }
+    const t = performance.now(), vistos = new Set();
+    for (const [id, pi, x, y, z, yaw, clip, se] of l) {
+      vistos.add(id);
+      let v = replicas.get(id);
+      if (!v) {
+        const pj = ASSETS[pi] ? pi : sustituto(pi); if (pj == null) continue;
+        v = crear(pj); v.clip = null; v.clipYa = false;
+        Object.assign(v, { id, replica: true, buf: [], x: x / 100, y: y / 100, z: z / 100, yaw: yaw / 100, estado: 'quieto', giroCab: 0, ocupado: false, sombra: undefined, paraguasR: false, saludoR: false, sitio: null, grupo: null, pareja: null, puerta: null });
+        v.info = info[pi] || v.info;   // (quién es: el del anfitrión, aunque el cuerpo sea otro)
+        v.raiz.setPosition(v.x, v.y, v.z); gente.push(v); replicas.set(id, v);
+      }
+      v.buf.push([t, x / 100, y / 100, z / 100, yaw / 100]); if (v.buf.length > 8) v.buf.shift();
+      v.clipR = CLIPS[clip] || 'quieto';
+      v.estado = v.clipR === 'sentado_iglesia' ? 'misa' : /sentado/.test(v.clipR) || (se & 8) ? 'sentado' : /andar|pasear|correr/.test(v.clipR) ? 'andar' : v.clipR === 'charla' ? 'charla' : 'quieto';
+      v.paraguasR = !!(se & 1); v.ocupado = !!(se & 4);
+      if ((se & 2) && !v.saludoR) v.saludo?.empezar(); v.saludoR = !!(se & 2);
+    }
+    for (const v of [...replicas.values()]) if (!vistos.has(v.id)) quitarReplica(v);
+  }
+  let relojR = 0;
+  function moverReplicas(dt, tt, p) {
+    const ver = performance.now() - 300;
+    for (const v of replicas.values()) {
+      const b = v.buf; if (!b.length) continue;
+      let j = b.length - 1; while (j > 0 && b[j - 1][0] > ver) j--;
+      if (j > 0 && b[j][0] > ver) {
+        const [t0, x0, y0, z0, r0] = b[j - 1], [t1, x1, y1, z1, r1] = b[j], k = Math.max(0, Math.min(1, (ver - t0) / Math.max(1, t1 - t0)));
+        v.x = x0 + (x1 - x0) * k; v.y = y0 + (y1 - y0) * k; v.z = z0 + (z1 - z0) * k; v.yaw = r0 + angulo(r1 - r0) * k;
+      } else { [, v.x, v.y, v.z, v.yaw] = b[b.length - 1]; }
+      poner(v, v.clipR || 'quieto', 0.3);
+      mover(v);
+      if (v.estado !== 'andar') mirarChica(v, p, Math.hypot(v.x - p.x, v.z - p.z), dt);
+    }
+    if ((relojR -= dt) <= 0) {
+      relojR = 0.5;
+      for (const v of replicas.values()) {
+        ponerParaguas(v, v.paraguasR);
+        const cs = Math.hypot(v.x - p.x, v.z - p.z) < 32; if (v.sombra !== cs) { v.sombra = cs; for (const r of v.e.findComponents('render')) r.castShadows = cs; }
+      }
+    }
+  }
+  // pasar de mover a los vecinos a verlos («replica»), o al revés: los propios se van (los que se ven, también: los del otro
+  // juego llegan enseguida, en el mismo sitio más o menos); las réplicas pasan a ser propias, cada una a lo suyo
+  function cambiarModo(m) {
+    if (m === modo || !['solo', 'anfitrion', 'replica'].includes(m)) return;
+    if (m === 'replica') {
+      for (const v of gente.slice()) if (!v.replica) morir(v);
+      otros = [];
+    } else if (modo === 'replica') {
+      const tt = performance.now() / 1000;
+      for (const v of [...replicas.values()]) {
+        replicas.delete(v.id);
+        const sentado = v.estado === 'sentado' || v.estado === 'misa';
+        Object.assign(v, { id: sigId++, replica: false, buf: null, sigueA: null, ocupadoPor: null, ocupado: false, ruta: null, k: 0, lado: 0, fin: null, hasta: tt + azar(30, 200), desvio: 0, sitio: null, grupo: null, t: 0, alturaT: 0, mira: null,
+          quiereIrse: !sentado, puntos: null, trasSentarse: 0, kVisto: -1, rodeo: null, pareja: null, objetivo: null, parado: 0, turno: 0, yObj: null, antes: null, pt: null, puerta: null, fase: 0 });
+        v.paso = PASO[v.info.tipo === 'mayor' ? 'pasear' : 'andar'] * azar(0.95, 1.04); v.clipAndar = v.info.tipo === 'mayor' ? 'pasear' : 'andar';
+        if (sentado) { v.estado = v.clipR === 'sentado_iglesia' ? 'misa' : 'sentado'; continue; }
+        v.estado = 'quieto';
+        if (/andar|pasear|correr/.test(v.clipR || '')) { const d = destino(v); if (d && irA(v, d[0], d[1], d[2])) v.quiereIrse = false; }
+      }
+      cuentaGente = 1; ultimaCuenta = -1e9;
+    }
+    modo = m;
+  }
   // los saludos se mueven después de la animación
   app.on('update', (dt) => { for (const v of gente) v.saludo?.mover(dt); });
   return api;

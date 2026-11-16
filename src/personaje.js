@@ -516,7 +516,8 @@ export function girosDePiernas({ datos, pos, giros, indiceJson, padreDe, huesos 
 
 // Monta el personaje y devuelve { raiz, modelo, estado, pista(track), actualizar(dt, camara), altura }. «leer(ruta)» da
 // cada archivo entero (el juego ya los ha bajado con lo demás); «q», los parámetros de la página.
-export async function montarPersonaje({ app, ruta = './escenas/personaje/', estado: dado, leer = leerArchivo, movil = false, q = null }) {
+// (prefijo: para los nombres de sus activos; el multijugador hace los de los demás —src/multi_figuras.js— con el suyo)
+export async function montarPersonaje({ app, ruta = './escenas/personaje/', estado: dado, leer = leerArchivo, movil = false, q = null, prefijo = '' }) {
   const device = app.graphicsDevice;
   let datos = await (await fetch(ruta + 'editor.json')).json();  // (se suelta al acabar: son 1,4 MB de números)
   const estado = estadoCompleto(datos, dado);
@@ -599,8 +600,8 @@ export async function montarPersonaje({ app, ruta = './escenas/personaje/', esta
     funde: (m) => ((m === 'pelo' && !conPelo) || (estado.ropa.conjunto && (m === 'ropa_arriba' || m === 'ropa_abajo')) ? 'piel' : null),
     color: (m, pos, nor) => (m === 'pelo' && conPelo && nor && q?.get('cuero') !== '0' ? colorCuero(pos, nor) : null) });
   const [aCuerpo, ...aPrendas] = await Promise.all([
-    contenedor('personaje', hCuerpo, 'cuerpo', iris),
-    ...TIPOS.map((t, k) => (hPrendas[k] ? contenedor('prenda_' + estado.ropa[t], hPrendas[k], t) : null)),
+    contenedor(prefijo + 'personaje', hCuerpo, 'cuerpo', iris),
+    ...TIPOS.map((t, k) => (hPrendas[k] ? contenedor(prefijo + 'prenda_' + estado.ropa[t], hPrendas[k], t) : null)),
   ]);
   // (lo horneado y las láminas del pelo ya no hacen falta, y las funciones de más abajo, que siguen vivas, las
   // retendrían con los .glb enteros de los que salen)
@@ -815,6 +816,10 @@ export async function montarPersonaje({ app, ruta = './escenas/personaje/', esta
   const finos = mis.filter((mi) => ['cornea', 'pestanas'].includes(mi.material.name));
   let tParpadeo = 2, lejos = false;
   function actualizar(dt, camara) {
+    // (la melena simulada cuelga de la escena, no del personaje —src/melena.js—: con el personaje fuera —conduciendo, de
+    // copiloto, el de otro jugador que se aleja— se quedaba flotando donde estaba; ahora se va con él)
+    // (en PlayCanvas, «enabled» ya cuenta con los padres)
+    if (melena && entMelena) { const ve = raiz.enabled; if (entMelena.enabled !== ve) entMelena.enabled = ve; if (!ve) return; }
     const ahora = !!camara && iCab !== undefined && camara.getPosition().distance(huesos[iCab].getPosition()) > 3.5;
     if (ahora !== lejos) { lejos = ahora; for (const mi of finos) mi.visible = !lejos; }
     tParpadeo -= dt;
@@ -826,5 +831,8 @@ export async function montarPersonaje({ app, ruta = './escenas/personaje/', esta
     melena?.actualizar(dt);
   }
   datos = null;
-  return { raiz, modelo, estado, mis, pista, actualizar, altura, escalaCadera, pon, muelle, melena };
+  // (activos: lo cargado en la gráfica, para soltarlo —el personaje de otro que se va—)
+  // (soltar: lo que queda fuera del personaje al quitarlo —la melena simulada—)
+  return { raiz, modelo, estado, mis, pista, actualizar, altura, escalaCadera, pon, muelle, melena, activos: [aCuerpo, ...aPrendas].filter(Boolean),
+    ocultarMelena: (si) => { if (entMelena) entMelena.enabled = !si; }, soltar: () => { melena?.destruir?.(); } };
 }
