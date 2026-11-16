@@ -39,8 +39,12 @@ export function precargar() {
     for (const x of lista) if (x.c) { const url = new URL(x.u, location.href).href; window.precargando.set(url, new Promise((r) => avisos.set(url, r))); }
     tengoLista();
     const total = lista.reduce((a, x) => a + (x.b || 0), 0) || 1, criticos = lista.filter((x) => x.c).length;
-    let hecho = 0, criticosHechos = 0, ultimo = 0;
-    const avisar = (fin) => { const now = performance.now(); if (!fin && now - ultimo < 400) return; ultimo = now; decir('g388:precarga', { p: fin ? 1 : Math.min(0.999, hecho / total), mb: Math.round(hecho / 1e5) / 10, total: Math.round(total / 1e5) / 10, critico: criticosHechos >= criticos }); };
+    // (y lo crítico aparte, en megas: la web saca de ahí cuánto le falta al juego para poder empezar y, mientras tanto, da
+    // vueltas sobre el pueblo en vez de quedarse esperando con el vídeo; 16-11-2026. Lo bajado se cuenta tal cual llega
+    // por la red, comprimido, y el total, sin comprimir: el total, por lo alto)
+    const totalC = lista.reduce((a, x) => a + (x.c ? x.b || 0 : 0), 0) || 1;
+    let hecho = 0, hechoC = 0, criticosHechos = 0, ultimo = 0;
+    const avisar = (fin, ya = false) => { const now = performance.now(); if (!fin && !ya && now - ultimo < 400) return; ultimo = now; decir('g388:precarga', { p: fin ? 1 : Math.min(0.999, hecho / total), mb: Math.round(hecho / 1e5) / 10, total: Math.round(total / 1e5) / 10, critico: criticosHechos >= criticos, mbc: Math.round(hechoC / 1e5) / 10, totalc: Math.round(totalC / 1e5) / 10 }); };
     const bajar = async (x) => {
       const url = new URL(x.u, location.href).href;
       const p = (async () => {
@@ -48,12 +52,12 @@ export function precargar() {
           const r = await fetch(url, { priority: x.c ? 'high' : 'low' });
           if (!r.ok || !r.body) return;
           const lector = r.body.getReader();
-          for (;;) { const { done, value } = await lector.read(); if (done) break; hecho += value.length; avisar(false); }
+          for (;;) { const { done, value } = await lector.read(); if (done) break; hecho += value.length; if (x.c) hechoC += value.length; avisar(false); }
         } catch (e) { /* (la pedirá el juego) */ }
       })();
       if (avisos.has(url)) p.then(avisos.get(url)); else window.precargando.set(url, p);
       await p;
-      if (x.c) criticosHechos++;
+      if (x.c) { criticosHechos++; if (criticosHechos >= criticos) avisar(false, true); }   // (lo crítico, acabado: se dice ya, sin esperar al siguiente aviso)
     };
     // de cuatro en cuatro, en el orden de la lista: primero lo que hace falta para arrancar y, cuando eso ya está todo,
     // lo demás (cargar antes, 13-11-2026: en cuanto se habían pedido los críticos se empezaba con lo demás, y las zonas
