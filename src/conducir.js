@@ -487,6 +487,10 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       const d = Math.hypot(Math.max(0, Math.abs(lx) - c.L / 2), Math.max(0, Math.abs(lz) - c.W / 2));
       if (d < dm && Math.abs(p.y - 1 - c.y0) < 1.2) { dm = d; mejor = k; }
     }
+    // (una persona de verdad al lado —el multijugador, src/multi.js— y no mucho más lejos que la puerta del coche: la E es
+    // para hablar con ella. En las calles estrechas casi siempre hay un coche a mano, y la E nunca era «Hablar con …»)
+    const h = mejor && window.foto?.multi?.cerca?.(p);
+    if (h && Math.hypot(h.x - p.x, h.z - p.z) < dm + 1.6) mejor = null;
     if (mejor !== est.cerca) { est.cerca = mejor; ponerBotones(); }
   };
 

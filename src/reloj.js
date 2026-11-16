@@ -289,5 +289,14 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   aplicar(true);
   // (dentro de la iglesia, con su planta: lo mismo para todos —src/acciones.js, src/gente.js—, que antes lo medía cada uno a
   // su manera; null si aún no se tiene la planta. 15-11-2026, la revisión del juego)
-  return Object.assign(estado, { adelantar, poner: (h) => { estado.hora = h; aplicar(true); }, aplicar, enPlanta: (x, z) => (planta ? enPlanta(x, z) : null) });
+  // la hora de la sala del multijugador (src/multi.js; docs/multijugador.md): la de España cuando entró el primero (t0) y,
+  // desde ahí, al ritmo de siempre: así todos los que están ven la misma hora. Con ?hora= o sin ritmo, no (las pruebas)
+  const sincronizar = (t0, ahoraServidor) => {
+    if (inicio || !ritmo || !t0) return false;
+    const [h0, , ds0] = horaEspana(new Date(t0));
+    const h = h0 + ritmo * Math.max(0, (ahoraServidor || Date.now()) - t0) / 60000, dias = Math.floor(h / 24);
+    estado.hora = h - dias * 24; estado.diaSemana = ds0; estado.dia = dias; aplicar(true);
+    return true;
+  };
+  return Object.assign(estado, { adelantar, poner: (h) => { estado.hora = h; aplicar(true); }, aplicar, sincronizar, enPlanta: (x, z) => (planta ? enPlanta(x, z) : null) });
 }

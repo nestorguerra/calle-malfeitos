@@ -24,6 +24,7 @@ import { montarTiempo } from './tiempo.js';
 import { montarSombras } from './sombras.js';
 import { montarGente } from './gente.js';
 import { montarAcciones } from './acciones.js';
+import { montarMulti } from './multi.js';
 import { bancosSolidos, montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
@@ -1104,7 +1105,12 @@ if (escena.vida && q.get('vida') !== '0') {
     conducir: () => window.foto?.conducir?.estado?.() })).then((g) => { if (window.foto) window.foto.gente = g; }).catch((e) => { console.warn('gente:', e); if (window.foto) window.foto.gente = null; })   // (null si falla: la entrada desde la web no espera 20 s)
     // y lo que puede hacer la chica con ella y con el pueblo: sentarse, hablar, saludar, bailar, arrodillarse, encender una vela (src/acciones.js)
     .then(() => (chica ? montarAcciones({ app, q, ctrl, muneco, tpc, carpeta: escena.chica, glb, pista, movil, vida, gente: window.foto?.gente, iglesia: escena.iglesiaSitios,
-      conducir: () => window.foto?.conducir?.estado?.(), reloj }) : null)).then((a) => { if (window.foto) window.foto.acciones = a; }).catch((e) => console.warn('acciones:', e));
+      conducir: () => window.foto?.conducir?.estado?.(), reloj, personas: (p) => window.foto?.multi?.cerca?.(p) || null, alSaludar: () => window.foto?.multi?.gesto?.(1) }) : null))
+    .then((a) => { if (window.foto) window.foto.acciones = a; }).catch((e) => console.warn('acciones:', e));
+  // el multijugador: los demás que están en el pueblo, hablar con ellos, la hora de la sala y «Guareña, ahora» (src/multi.js;
+  // docs/multijugador.md). Con la chica de serie, que es la figura con la que se ve a los demás
+  if (chica && !mio && vida) trasListo.then(() => { try { const m = montarMulti({ app, q, escena: nombre, ctrl, muneco, camara, reloj, vida, personaje: A.personaje,
+    clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388' }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
   // (la sombra de contacto bajo los pies de la chica y de los vecinos de cerca: src/sombras.js)
   if (modelo) { try { montarSombras({ app, muneco, ctrl, camara, gente: () => window.foto?.gente, reloj, q }); } catch (e) { console.warn('sombras de contacto:', e); } }
 }

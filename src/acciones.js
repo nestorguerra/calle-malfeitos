@@ -53,7 +53,9 @@ function frases({ tipo, sexo, h, dia, sitio, misa, jugando, sentado }) {
   ];
 }
 
-export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, pista, movil, vida, gente, iglesia, conducir, reloj, cajas }) {
+// personas: (p) → la persona de verdad más cercana (el multijugador, src/multi.js) o null; alSaludar: para que los demás
+// vean el saludo
+export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, pista, movil, vida, gente, iglesia, conducir, reloj, cajas, personas, alSaludar }) {
   if (q.get('acciones') === '0') return null;
   const sitiosIglesia = iglesia ? await fetch(iglesia).then((r) => r.json()).catch(() => null) : null;
   // ---- las animaciones nuevas, a su capa (como estados sueltos, sin transiciones: se entra y se sale a mano)
@@ -255,6 +257,7 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
   }
   function saludar() {
     saludoChica?.empezar();
+    alSaludar?.();
     // (quien la ve cerca le contesta: los dos más cercanos que la tienen delante)
     if (!gente) return;
     const p = pie();
@@ -374,7 +377,10 @@ export async function montarAcciones({ app, q, ctrl, muneco, tpc, carpeta, glb, 
     const coste = (x, z) => { const d = Math.hypot(x - p.x, z - p.z) || 1e-3; return d + 1.2 * (1 - ((x - p.x) * fx + (z - p.z) * fz) / d); };
     const dv = v ? coste(v.x, v.z) : 99, da = a ? coste(a.x + a.mira[0] * 0.45, a.z + a.mira[1] * 0.45) : 99;
     let uno = null, otro = null;
-    if (v && (dv < da || !a)) uno = { texto: 'Hablar', f: () => hablar(v) };
+    // (una persona de verdad al lado —el multijugador—: hablar con ella gana a un vecino o un asiento a la misma distancia)
+    const h = personas?.(p), dh = h ? coste(h.x, h.z) - 0.3 : 99;
+    if (h && dh < dv && dh < da) uno = { texto: 'Hablar con ' + h.nombre, f: h.hablar };
+    else if (v && (dv < da || !a)) uno = { texto: 'Hablar', f: () => hablar(v) };
     else if (a) uno = { texto: 'Sentarse', f: () => sentarse(a) };
     if (lampadarioCerca(p)) { otro = uno; uno = { texto: 'Encender una vela', f: encenderVela }; }
     if (enIglesia(p) && !otro) { const r = { texto: 'Arrodillarse', f: arrodillarse }; if (!uno) uno = r; else otro = r; }
