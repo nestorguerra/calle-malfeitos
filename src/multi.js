@@ -158,6 +158,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, camara, reloj, vida,
   }
   function recibirEstado(o, p) {
     Object.assign(o.p, p);
+    o.visto = performance.now();
     if (p.x != null && p.z != null) { o.buf.push([performance.now(), o.p.x, o.p.y ?? 0, o.p.z, o.p.r ?? 0]); if (o.buf.length > 12) o.buf.shift(); }
     const t = (o.p.n || 'Alguien') + (o.p.m === 7 ? ' · conduciendo' : '');
     if (o.nombreDom.textContent !== t) o.nombreDom.textContent = t;
@@ -202,6 +203,11 @@ export function montarMulti({ app, q, escena, ctrl, muneco, camara, reloj, vida,
     }
   }
   const enviar = (o) => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(o)); } catch (e) { /* se reconecta */ } } };
+  // (al cerrar la página, adiós: el aviso de cierre del navegador no siempre llega pasando por el proxy del servidor, y los
+  // demás la seguían viendo quieta un rato)
+  addEventListener('pagehide', () => { enviar({ t: 'adios' }); try { ws?.close(); } catch (e) { /* ya cerrado */ } });
+  // (y algo cada 2 s aunque no se dibuje —la pestaña de detrás—: si no, a los 20 s el servidor la daba por ida)
+  setInterval(() => { if (document.hidden) mandar(false); }, 2000);
 
   // ---- lo de aquí: la chica, cómo está y dónde
   const acc = () => window.foto?.acciones?.estado?.() || null;
@@ -318,6 +324,8 @@ export function montarMulti({ app, q, escena, ctrl, muneco, camara, reloj, vida,
     if ((cadaSitio -= dt) <= 0) { cadaSitio = 1; const e = miEstado(); sitio = donde.de(e.x, e.z); }
     mandar(false);
     // (los más cercanos, con figura; los demás, sin ella)
+    // (quien lleva 25 s sin decir nada se ha ido aunque el servidor no lo haya dicho: cada uno manda algo cada 2 s)
+    for (const o of otros.values()) if (ahora - (o.visto || ahora) > 25000) quitar(o.id);
     const orden = [...otros.values()].filter((o) => o.buf.length).sort((a, b) => Math.hypot(a.p.x - p.x, a.p.z - p.z) - Math.hypot(b.p.x - p.x, b.p.z - p.z));
     orden.forEach((o, i) => {
       const b = o.buf; let x, y, z, r;
