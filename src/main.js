@@ -24,7 +24,7 @@ import { montarTiempo } from './tiempo.js';
 import { montarSombras } from './sombras.js';
 import { montarGente } from './gente.js';
 import { montarAcciones } from './acciones.js';
-import { montarMulti } from './multi.js';
+import { montarMulti, salidaMulti } from './multi.js';
 import { bancosSolidos, montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
@@ -92,13 +92,15 @@ MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guaren
   objetos: './escenas/guarena/objetos.glb', vida: './escenas/guarena/vida.json', zonas: './escenas/guarena/zonas.json',
   aparcados: './escenas/guarena/iglesia_coches.json', // (los coches aparcados en la plaza de la iglesia: src/aparcados.js)
   iglesiaBancos: './escenas/guarena/iglesia_bancos.json', // (sus bancos de forja, para sentarse: abajo)
-  dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260, // (el interior de la iglesia, aparte: se carga al acercarse)
+  dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260, nombre: 'la iglesia de Santa María', // (el interior de la iglesia, aparte: se carga al acercarse)
     canto: './escenas/guarena/canto_iglesia.m4a', planta: './escenas/guarena/iglesia_planta.json' }, // (y el canto gregoriano, que suena solo dentro: src/canto.js)
   partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json', // (las cuestas de verdad, al dibujar: src/relieve.js)
   gente: './escenas/guarena/gente/', iglesiaSitios: './escenas/guarena/iglesia_sitios.json', // (los vecinos por la calle según la hora: src/gente.js)
-  reloj: true }; // (la hora del pueblo, que corre, y la luz según la hora: src/reloj.js; ?reloj=0, la luz fija de siempre)
+  reloj: true, // (la hora del pueblo, que corre, y la luz según la hora: src/reloj.js; ?reloj=0, la luz fija de siempre)
+  // (qué pueblo es: su sala del multijugador —una por pueblo, por su código del INE—, su nombre y sus vecinos; src/multi.js)
+  pueblo: { ine: '06060', nombre: 'Guareña', habitantes: 6665 } };
 const modelo = MODELOS[q.get('escena')] ? { ...MODELOS[q.get('escena')], ...(q.get('modelo') ? { modelo: q.get('modelo') } : {}) }
   : (q.get('modelo') ? { modelo: q.get('modelo') } : null); // (?modelo= también cambia el .glb de una escena: para probar variantes)
 const nombre = foto ? 'foto' : (q.get('escena') || (q.get('url') ? 'url' : modelo ? 'modelo' : 'sunnyvale'));
@@ -113,6 +115,11 @@ const escena = foto ? { splat: null, colision: null, giro: [0, 0, 0], inicio: nu
   escala: parseFloat(q.get('escala') || '1'),
 };
 if (!escena.splat && !foto && !modelo) throw new Error('escena desconocida: ' + nombre);
+// (el multijugador, fase 3: salir donde se dejó la última vez o, con el enlace de alguien, a su lado —src/multi.js—; antes
+// de cargar nada, para que las zonas que se bajan sean las de allí)
+const inicioDeSerie = escena.inicio?.slice();
+const salida = escena.pueblo && !foto && !q.get('inicio') ? await salidaMulti({ q, escena, desde388: q.get('desde') === '388' }).catch(() => null) : null;
+if (salida) escena.inicio = salida.inicio;
 
 const acabadoFoto = !!escena.foto && q.get('acabado') !== 'gta';
 // ?personaje=bitmoji vuelve al muñeco de dibujos en las escenas que traen la chica; ?personaje=nino, el niño de 10
@@ -867,6 +874,8 @@ if (q.get('fluido') !== '0') {
     muneco.setLocalEulerAngles(0, yawSuave, 0);
   });
 }
+// (saliendo donde se dejó o junto a alguien, mirando hacia donde miraba o hacia esa persona)
+if (salida?.rumbo != null) { tpc._yaw = salida.rumbo + 180; tpc._modelYaw = salida.rumbo; muneco.setLocalEulerAngles(0, salida.rumbo, 0); }
 let andando = false, enRuta = false; // (enRuta: andando una ruta de medida, sin teclado)
 tpc.on('speed', (b) => { if (q.get('fluido') === '0') muneco.anim.setInteger('v', b); andando = b > 0; });
 // (FLUIDO: el paso de la animación (quieta, andar, correr), cada fotograma desde la velocidad, pero solo en el suelo: en
@@ -1101,7 +1110,7 @@ if (escena.vida && q.get('vida') !== '0') {
     try { const o = ponerObras({ app, coches: c, q }); if (window.foto) window.foto.obras = o; } catch (e) { console.warn('obras:', e); }
   }).catch((e) => { console.warn('coches:', e); if (window.foto && !('coches' in window.foto)) window.foto.coches = null; });   // (null si falla: la entrada desde la web no espera 20 s)
   // la gente del pueblo, según la hora (src/gente.js; docs/gente.md): después de lo demás, que no retrase la carga
-  if (escena.gente) trasListo.then(() => montarGente({ app, vida, carpeta: escena.gente, glb, camara, chica: ctrl, reloj, q, movil, iglesia: escena.iglesiaSitios,
+  if (escena.gente) trasListo.then(() => montarGente({ app, vida, carpeta: escena.gente, glb, camara, chica: ctrl, reloj, q, movil, iglesia: escena.iglesiaSitios, habitantes: escena.pueblo?.habitantes,
     conducir: () => window.foto?.conducir?.estado?.() })).then((g) => { if (window.foto) window.foto.gente = g; }).catch((e) => { console.warn('gente:', e); if (window.foto) window.foto.gente = null; })   // (null si falla: la entrada desde la web no espera 20 s)
     // y lo que puede hacer la chica con ella y con el pueblo: sentarse, hablar, saludar, bailar, arrodillarse, encender una vela (src/acciones.js)
     .then(() => (chica ? montarAcciones({ app, q, ctrl, muneco, tpc, carpeta: escena.chica, glb, pista, movil, vida, gente: window.foto?.gente, iglesia: escena.iglesiaSitios,
@@ -1111,7 +1120,8 @@ if (escena.vida && q.get('vida') !== '0') {
   // docs/multijugador.md). Con la chica de serie o con el personaje propio (a los demás se les ve con el suyo:
   // src/multi_figuras.js)
   if (chica && vida) trasListo.then(() => { try { const m = montarMulti({ app, q, escena: nombre, ctrl, muneco, tpc, camara, reloj, vida, personaje: mio ? null : A.personaje,
-    clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388', mio: !!mi, estadoMio: mi?.estado || null, glb }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
+    clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388', mio: !!mi, estadoMio: mi?.estado || null, glb,
+    pueblo: escena.pueblo, salida, inicioDeSerie, iglesia: escena.dentro?.nombre }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
   // (la sombra de contacto bajo los pies de la chica y de los vecinos de cerca: src/sombras.js)
   if (modelo) { try { montarSombras({ app, muneco, ctrl, camara, gente: () => window.foto?.gente, reloj, q }); } catch (e) { console.warn('sombras de contacto:', e); } }
 }
@@ -1240,6 +1250,17 @@ window.foto = {
   app, ctrl, camara, tpc, sonido, canto, reloj, muneco, personaje: mi, cargado: true, carga_ms: Math.round(tCarga), tiempos, gpu: app.graphicsDevice.deviceType, escena: nombre, url: escena.splat,
   pos: () => { const p = ctrl.getPosition(); return [p.x, p.y, p.z].map((v) => Math.round(v * 100) / 100); },
   ir: (x, y, z) => { ctrl.rigidbody.teleport(x, y, z); },
+  // ir a otro sitio del pueblo de golpe (volver donde se dejó, quedar con alguien: src/multi.js): la chica allí, mirando
+  // hacia «rumbo», la cámara detrás de ella, las zonas de alrededor cargadas a la vez y los vecinos, de nuevo
+  irA: async (x, y, z, rumbo = null) => {
+    ctrl.rigidbody.teleport(x, y, z); ctrl.rigidbody.linearVelocity = Vec3.ZERO;
+    const r = rumbo ?? tpc._modelYaw ?? 0;
+    tpc._yaw = r + 180; tpc._modelYaw = r; muneco.setLocalEulerAngles(0, r, 0);
+    const a = r * Math.PI / 180, c = new Vec3(x - Math.sin(a) * 4, y + 1.2, z - Math.cos(a) * 4);
+    camara.setPosition(c); tpc._camPos?.copy(c); tpc._camLookAt?.set(x, y, z);
+    await zonas?.cargarEn?.({ x, z });
+    window.foto?.gente?.reiniciar?.();
+  },
   andando: (b) => { andando = b; }, // (para mover la cápsula desde fuera con la subida de escalones puesta)
   // la cámara: rumbo y picado en grados, y distancia al personaje (para las capturas desde un punto fijo)
   vista: (rumbo, picado, dist) => { tpc._yaw = rumbo; if (picado != null) tpc._pitch = picado; if (dist != null) tpc.cameraDistance = dist; },
@@ -1541,7 +1562,8 @@ if (ZC) {
   for (const t of ya.values()) t.then((a) => { a.unload(); app.assets.remove(a); }).catch(() => {}); // (si sobrara alguna pedida, fuera)
   ya.clear();
   app.on('update', () => { if ((cuenta++ & 31) === 0) repasar(camara.getPosition(), false); });
-  zonas = { estado, Z, radio, cargadas: () => [...estado.keys()] };
+  // (cargarEn: las de alrededor de un sitio, a la vez, como al empezar; para ir de golpe a otro sitio: foto.irA)
+  zonas = { estado, Z, radio, cargadas: () => [...estado.keys()], cargarEn: async (p) => { while (ocupado) await new Promise((r) => setTimeout(r, 50)); await repasar(p, true); } };
   tiempos.zonas = estado.size;
 }
 for (const u of Object.values(mem)) if (u.startsWith('blob:')) URL.revokeObjectURL(u); // (los archivos bajados, ya leídos)

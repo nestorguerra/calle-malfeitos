@@ -16,8 +16,13 @@
 // - La hora, la de la sala (reloj.sincronizar): la misma para todos.
 // - «Guareña, ahora» (la pantalla inicial y el botón «Quién hay», P): cuántas personas, cuántos vecinos y dónde está cada
 //   persona (src/donde.js).
-// Sin servidor (dormido, sin red, ?multi=0) se juega solo, como antes. ?multi=ws://127.0.0.1:<puerto> usa uno en local;
-// ?nombre= pone el nombre; ?bienvenida=0 no enseña la pantalla inicial (las pruebas).
+// - Fase 3: una sala por pueblo (la del «pueblo» de la escena, src/main.js: su código del INE, su nombre y sus vecinos);
+//   volver donde se dejó (el juego apunta el sitio cada 5 s y, entrando derecho, se sale allí; desde la web de 388 se
+//   ofrece en el recuadro); y quedar con alguien: «Quedar con alguien» da un enlace (?con=<código>) y quien lo abre sale
+//   a su lado —si está jugando; si no, en cuanto entre—, y se le avisa.
+// Sin servidor (dormido, sin red, ?multi=0) se juega solo, como antes. ?multi=ws://127.0.0.1:<puerto> usa uno en local
+// (y con él, ?pueblo=<INE> hace de otro pueblo); ?nombre= pone el nombre; ?bienvenida=0 no enseña la pantalla inicial;
+// ?volver=0 no sale donde se dejó (las pruebas).
 import { Vec3 } from 'playcanvas';
 import { enLaCalle, VECINOS } from './gente.js';
 import { HACE, montarDonde } from './donde.js';
@@ -26,21 +31,72 @@ import { montarCochesMulti } from './multi_coches.js';
 import { montarGenteMulti } from './multi_gente.js';
 
 const SERVIDOR = 'wss://three88-pueblos.onrender.com/ws';
-const PUEBLOS = { guarena: '06060' };
+// el servidor: el de 388 o, para las pruebas, uno en local (?multi=ws://127.0.0.1:<puerto>); y la sala, la del pueblo de
+// la escena (en local, ?pueblo=<INE> hace de otro pueblo)
+function servidor(q, pueblo) {
+  const local = q.get('multi') && /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(q.get('multi')) ? q.get('multi').replace(/\/$/, '') : null;
+  const ws = local ? local + '/ws' : SERVIDOR;
+  return { ws, http: ws.replace(/^ws/, 'http').replace(/\/ws$/, ''), ine: local && /^\d{5}$/.test(q.get('pueblo') || '') ? q.get('pueblo') : pueblo?.ine };
+}
+const CITA = /^[a-z0-9]{8,16}$/;
+// a su lado: 1,4 m detrás de hacia donde mira —por donde ha venido, que siempre es suelo— y 0,7 m a un lado (justo detrás,
+// la figura propia la tapaba), mirándola; si va en coche, a 3 m. Devuelve [x, z, rumbo]
+function aSuLado(p) {
+  const a = (p.r || 0) * Math.PI / 180, enCoche = p.m === 7 || p.m === 10, atras = enCoche ? 3 : 1.4, lado = enCoche ? 0 : 0.7;
+  const x = p.x - Math.sin(a) * atras - Math.cos(a) * lado, z = p.z - Math.cos(a) * atras + Math.sin(a) * lado;
+  return [x, z, Math.atan2(p.x - x, p.z - z) * 180 / Math.PI];
+}
+// el sitio donde se dejó el juego en este pueblo (hasta un mes)
+function sitioGuardado(ine) {
+  try { const g = JSON.parse(localStorage.getItem('g388:sitio:' + ine) || 'null'); return g && [g.x, g.y, g.z].every(Number.isFinite) && Date.now() - g.t < 30 * 86400000 ? g : null; } catch (e) { return null; }
+}
+// ---- por dónde se sale (src/main.js, antes de cargar nada): con el enlace de alguien (?con=<código>), a su lado si está
+// jugando (aSuLado, arriba); si no,
+// entrando derecho al juego, donde se dejó la última vez. Desde la web de 388, por la calle de la entrada (el vuelo y el
+// vídeo acaban allí): volver se ofrece en el recuadro, e ir con quien invita, ya dentro
+export async function salidaMulti({ q, escena, desde388 }) {
+  if (q.get('multi') === '0') return null;
+  const { http, ine } = servidor(q, escena.pueblo);
+  if (!ine) return null;
+  const con = q.get('con');
+  if (con && CITA.test(con)) {
+    if (desde388 || q.get('conrapido') === '0') return null;
+    try {
+      const c = new AbortController(), t = setTimeout(() => c.abort(), 2500);
+      const r = await fetch(`${http}/api/juego?pueblo=${ine}&con=${con}`, { cache: 'no-store', signal: c.signal }); clearTimeout(t);
+      const p = r.ok ? (await r.json()).con : null;
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) {
+        const [x, z, rumbo] = aSuLado(p);
+        return { tipo: 'cita', inicio: [x, (p.y ?? 0) + 1.5, z], rumbo, n: p.n };
+      }
+    } catch (e) { /* dormido o sin red: se busca ya dentro (montarMulti) */ }
+    return null;
+  }
+  if (desde388 || q.get('volver') === '0') return null;
+  const g = sitioGuardado(ine);
+  return g ? { tipo: 'vuelta', inicio: [g.x, g.y + 0.4, g.z], rumbo: Number.isFinite(g.r) ? g.r : null, w: g.w, t: g.t } : null;
+}
 const NOMBRES = ['Lucía', 'Carmen', 'María', 'Paula', 'Elena', 'Julia', 'Sara', 'Marta', 'Alba', 'Irene', 'Laura', 'Noelia', 'Rocío', 'Pilar', 'Inés', 'Nerea', 'Andrea', 'Claudia', 'Sofía', 'Valeria'];
 const LETRAS = /[^A-Za-zÁÉÍÓÚÑáéíóúñü]/g;
 const guardado = { leer: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, poner: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } } };
 
-export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, vida, personaje, clips, movil, desde388, mio, estadoMio, glb }) {
-  const pueblo = PUEBLOS[escena];
-  if (q.get('multi') === '0' || !pueblo) return null;
-  const local = q.get('multi') && /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(q.get('multi')) ? q.get('multi').replace(/\/$/, '') + '/ws' : null;
+export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, vida, personaje, clips, movil, desde388, mio, estadoMio, glb, pueblo, salida, inicioDeSerie, iglesia }) {
+  const { ws: urlServidor, ine } = servidor(q, pueblo);
+  if (q.get('multi') === '0' || !ine) return null;
+  const NOMBRE_PUEBLO = pueblo?.nombre || 'El pueblo';
+  const antes = sitioGuardado(ine); // (donde se dejó la vez anterior, antes de apuntar el de ahora)
   // (el aparato: un número al azar guardado en el navegador; si a alguien le denuncian, se le calla a él y no a todos los
   // de su misma conexión)
   let aparato = guardado.leer('g388:aparato');
   if (!/^[A-Za-z0-9_-]{12,64}$/.test(aparato || '')) { aparato = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'[b & 63]).join(''); guardado.poner('g388:aparato', aparato); }
-  const url = (local || SERVIDOR) + '?room=juego-' + pueblo + '&d=' + aparato;
-  const donde = montarDonde({ vida, reloj });
+  const url = urlServidor + '?room=juego-' + ine + '&d=' + aparato;
+  const donde = montarDonde({ vida, reloj, iglesia });
+  // (mi código para quedar: va en el enlace que se da a quien se quiere tener al lado; no se manda a los demás)
+  let cita = guardado.leer('g388:cita');
+  if (!/^[a-z0-9]{10}$/.test(cita || '')) { cita = Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join(''); guardado.poner('g388:cita', cita); }
+  const enlace = () => { const u = new URL(location.href); u.search = ''; u.hash = ''; u.searchParams.set('escena', escena); u.searchParams.set('con', cita); return u.href; };
+  // (el código del enlace con el que se ha venido: con quien hay que juntarse)
+  const con = CITA.test(q.get('con') || '') && q.get('con') !== cita ? q.get('con') : null;
   const figura = muneco.children[0];
   const miPj = mio ? personajeCorto(estadoMio) : null;
 
@@ -118,6 +174,16 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   #multi-panel form input { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--linea, rgba(186, 198, 255, .16)); background: rgba(238, 240, 236, .08); color: var(--cal, #eef0ec); font: 400 16px/1.3 var(--f-display, Arial, sans-serif); }
   #multi-panel .entrar { width: 100%; margin-top: 16px; padding: 13px 18px; font-size: 12px; }
   #multi-panel.esquina .entrar, #multi-panel.esquina .yo { display: none; }
+  #multi-panel .salida { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 169, 77, .1); border: 1px solid rgba(255, 169, 77, .3); font-size: 14px; line-height: 1.4; }
+  #multi-panel .salida[hidden], #multi-panel .invitar[hidden], #multi-panel .salida button[hidden] { display: none; }
+  #multi-panel .salida button { display: block; margin-top: 8px; background: transparent; color: var(--cal, #eef0ec); border-color: var(--linea, rgba(186, 198, 255, .16)); }
+  #multi-panel .quedar { background: transparent; color: var(--cal, #eef0ec); border-color: var(--linea, rgba(186, 198, 255, .16)); margin: 0 0 10px; }
+  #multi-panel .invitar { margin: 0 0 12px; font-size: 14px; line-height: 1.4; color: var(--niebla, #9ba4c8); }
+  #multi-panel .invitar div { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+  #multi-panel .invitar input { flex: 1 1 180px; min-width: 0; padding: 7px 10px; border-radius: 999px; border: 1px solid var(--linea, rgba(186, 198, 255, .16)); background: rgba(238, 240, 236, .08); color: var(--cal, #eef0ec); font: 400 12px/1.3 var(--f-mono, ui-monospace, Menlo, monospace); }
+  #multi-viaje { position: fixed; inset: 0; z-index: 9; display: flex; align-items: center; justify-content: center; background: rgba(7, 10, 20, .94); color: var(--cal, #eef0ec);
+    font: 500 12px/1.4 var(--f-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; text-transform: uppercase; transition: opacity .55s ease; }
+  #multi-viaje[hidden] { display: none; } #multi-viaje.fuera { opacity: 0; pointer-events: none; }
   @media (pointer: coarse) { .multi-pildora { padding: 12px 16px; font-size: 12px; } #multi-panel li .mas button { padding: 9px 13px; font-size: 11px; } #multi-decir button { padding: 11px 15px; } }
   @media (max-width: 760px) { #multi-panel .cifras b { font-size: 22px; } #multi-panel h2 { font-size: 24px; } #multi-panel.esquina { padding: 14px; } #multi-panel .cifras div { padding: 8px; }
     body.multi-escribe .multi-pildora { visibility: hidden; } }`;   /* (en el móvil, la barra de escribir va donde los botones de abajo) */
@@ -134,15 +200,19 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   const [decirA, decirTexto] = [decir.querySelector('span'), decir.querySelector('input')];
   decir.querySelector('.cerrar-decir')?.addEventListener('click', () => cerrarDecir());
   const panel = document.createElement('section'); panel.id = 'multi-panel'; panel.hidden = true; panel.setAttribute('aria-label', 'Quién hay en el pueblo');
-  panel.innerHTML = `<div class="cab"><span class="tit">Guareña, ahora</span><button type="button" class="cerrar" aria-label="Cerrar">×</button></div>
+  panel.innerHTML = `<div class="cab"><span class="tit"></span><button type="button" class="cerrar" aria-label="Cerrar">×</button></div>
     <h2>Quién hay en el pueblo</h2>
+    <p class="salida" hidden><span></span><button type="button" class="ir-inicio" hidden></button><button type="button" class="volver" hidden></button></p>
     <div class="cifras"><div><b class="nh">—</b><span>personas jugando</span></div><div><b class="nv">—</b><span>vecinos por la calle</span></div><div><b class="nc">—</b><span>a tu alrededor</span></div></div>
     <p class="con"></p><ul></ul><p class="vacio" hidden></p>
+    <button type="button" class="quedar">Quedar con alguien</button>
+    <div class="invitar" hidden>Quien abra este enlace aparecerá a tu lado en el pueblo (si no estás jugando, cuando entres):<div><input type="text" readonly aria-label="Tu enlace para quedar"><button type="button" class="copiar">Copiar</button><button type="button" class="compartir" hidden>Compartir</button></div></div>
     <div class="yo"><span>Entras como <b class="minombre"></b></span><button type="button" class="cambiar">Cambiar el nombre</button></div>
     <form class="nombre" hidden><input type="text" maxlength="12" autocomplete="off" aria-label="Tu nombre (solo letras)"><button type="submit">Vale</button></form>
     <button type="button" class="entrar">Entrar en el pueblo</button>`;
   document.body.appendChild(panel);
   const $ = (s) => panel.querySelector(s);
+  $('.tit').textContent = NOMBRE_PUEBLO + ', ahora';
   // (lo que se escribe no mueve a la chica: el teclado del juego escucha en la ventana)
   for (const el of [decirTexto, $('form.nombre input')]) for (const ev of ['keydown', 'keyup', 'keypress']) el.addEventListener(ev, (e) => { e.stopPropagation(); if (ev === 'keydown' && e.code === 'Escape') { el.blur(); if (el === decirTexto) cerrarDecir(); } });
   for (const el of [boton, bHablar, panel, decir]) for (const ev of ['pointerdown', 'pointerup', 'touchstart', 'mousedown']) el.addEventListener(ev, (e) => e.stopPropagation()); // (que el toque no mueva la cámara)
@@ -209,6 +279,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
       for (const o of d.otros || []) { const x = crear(o.id, o.p, o.o ?? null); if (x) { x.o = o.o ?? x.o; x.pj = o.pj || null; } }
       coches.sala(d.coches);
       if (miPj) enviar({ t: 'pj', f: miPj });
+      enviar({ t: 'cita', c: cita }); tBusco = 0;
       mandar(true);
       pintarPanel();
     } else if (d.t === 'entra') { const o = crear(d.id, {}, d.o ?? null); if (o) o.o = d.o ?? o.o; pintarPanel(); }
@@ -217,6 +288,8 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
     else if (d.t === 'pj') { const o = otros.get(d.id) || crear(d.id); o.pj = d.f || null; }
     else if (d.t === 'g') { const o = otros.get(d.id); if (o && d.k === 1) o.fig?.saludo?.empezar(); }
     else if (d.t === 'cd') coches.dejado(d.o, d.x, d.y, d.z, d.r);
+    else if (d.t === 'cita' && d.c === con) { conQuien = d.id; pintarPanel(true); }
+    else if (d.t === 'llega') { const o = otros.get(d.id); apuntar('Aviso', `${nombreDe(o)} ha venido con tu enlace: está a tu lado.`, false, true); }
     else if (d.t === 'gv' || d.t === 'go') genteM.recibir(d);
     else if (d.t === 'callado') {
       // (la primera vez, el aviso; si se vuelve a escribir, ya lo dice el envío)
@@ -240,11 +313,11 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
 
   // ---- lo de aquí: la chica, cómo está y dónde
   const acc = () => window.foto?.acciones?.estado?.() || null;
-  const con = () => window.foto?.conducir?.estado?.() || null;
+  const conduce = () => window.foto?.conducir?.estado?.() || null;
   let sitio = { k: -1, l: -1 }, sitioTexto = '', cadaSitio = 0, hablandoCon = null;
   const vecinosAhora = () => { const g = window.foto?.gente?.cuantos?.(); return g ? g.enLaCalle : null; };
   function miEstado() {
-    const c = con(), a = acc(), mc = coches.mio();
+    const c = conduce(), a = acc(), mc = coches.mio();
     let x, y, z, r;
     if (mc.m === 10 && mc.pos) [x, y, z, r] = mc.pos;
     else if (c?.modo === 'conduciendo' && c.pos) { [x, y, z] = c.pos; r = c.rumbo ?? 0; }
@@ -268,6 +341,49 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
     }
   }
   const gesto = (k) => enviar({ t: 'g', k });
+
+  // ---- ir de golpe a otro sitio (volver donde se dejó, juntarse con quien invita): fundido a negro, la chica allí
+  // (src/main.js, foto.irA: con las zonas de alrededor cargadas) y de vuelta. Conduciendo, no; de copiloto, se baja antes
+  const velo = document.createElement('div'); velo.id = 'multi-viaje'; velo.hidden = true; velo.innerHTML = '<span></span>'; document.body.appendChild(velo);
+  let enViaje = false;
+  async function viajar(x, y, z, rumbo, texto) {
+    if (!window.foto?.irA || enViaje || conduce()?.modo === 'conduciendo') return false;
+    if (coches.copiloto()) coches.bajar();
+    const a = acc(); if (a?.modo && a.modo !== 'pie') window.foto?.acciones?.aPie?.();
+    enViaje = true; velo.querySelector('span').textContent = texto || 'Yendo…'; velo.classList.remove('fuera'); velo.hidden = false;
+    await new Promise((r) => setTimeout(r, 400));
+    try { await window.foto.irA(x, y, z, rumbo); } catch (e) { console.warn('multijugador: ir a otro sitio', e); }
+    await new Promise((r) => setTimeout(r, 250));
+    velo.classList.add('fuera'); setTimeout(() => { velo.hidden = true; }, 600); enViaje = false;
+    sitio = donde.de(x, z); sitioTexto = donde.texto(sitio, x, z); mandar(true); guardarSitio();
+    return true;
+  }
+  // ---- volver donde se dejó: el sitio, cada 5 s y al cerrar la página (andando; conduciendo o de copiloto, el del coche)
+  function guardarSitio() {
+    if (enViaje || !window.foto) return;
+    const p = ctrl.getPosition(), r = ultimo?.r ?? 0, r2 = (v) => Math.round(v * 100) / 100;
+    guardado.poner('g388:sitio:' + ine, JSON.stringify({ x: r2(p.x), y: r2(p.y), z: r2(p.z), r: Math.round(r * 10) / 10, w: sitioTexto, t: Date.now() }));
+  }
+  setInterval(guardarSitio, 5000); addEventListener('pagehide', guardarSitio);
+  const textoDe = (p) => (p ? donde.texto(donde.de(p[0], p[2]), p[0], p[2]) : 'la entrada');
+  const irAlInicio = () => inicioDeSerie && viajar(inicioDeSerie[0], inicioDeSerie[1], inicioDeSerie[2], null, 'Yendo a ' + textoDe(inicioDeSerie) + '…');
+  const volverAntes = () => antes && viajar(antes.x, antes.y + 0.4, antes.z, antes.r, 'Volviendo a ' + (antes.w || 'donde lo dejaste') + '…');
+  // ---- quedar con alguien: quien ha venido con su enlace la busca en la sala (cada 4 s, hasta un cuarto de hora) y, en
+  // cuanto se sabe dónde está, va a su lado si no lo está ya; a ella se le avisa
+  let conQuien = null, conHecho = false, tBusco = 0;
+  const conHasta = performance.now() + 15 * 60000;
+  async function juntarse() {
+    const o = otros.get(conQuien); if (!o || o.p.x == null || conHecho || enViaje) return;
+    conHecho = true;
+    const p = ctrl.getPosition();
+    if (Math.hypot(o.p.x - p.x, o.p.z - p.z) > 8) {
+      const [x, z, rumbo] = aSuLado(o.p);
+      if (!await viajar(x, (o.p.y ?? 0) + 1.5, z, rumbo, 'Yendo con ' + nombreDe(o) + '…')) { conHecho = false; return; }
+    }
+    enviar({ t: 'llego', c: con });
+    apuntar('Aviso', `Estás con ${nombreDe(o)}: has venido con su enlace.`, false, true);
+    pintarPanel(true);
+  }
 
   // ---- hablar: E junto a alguien (src/acciones.js pregunta a cerca()), Intro o el botón «Hablar»
   function abrirDecir(o) {
@@ -306,7 +422,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   addEventListener('keydown', (e) => {
     if (e.repeat || e.target?.tagName === 'INPUT' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (!panel.hidden && panel.classList.contains('modal')) { if (e.code === 'Enter') { e.preventDefault(); entrar(); } return; }
-    if (e.code === 'Enter' && acc()?.modo !== 'hablando' && con()?.modo !== 'conduciendo') { e.preventDefault(); abrirDecir(masCerca()); }
+    if (e.code === 'Enter' && acc()?.modo !== 'hablando' && conduce()?.modo !== 'conduciendo') { e.preventDefault(); abrirDecir(masCerca()); }
     else if (e.code === 'KeyP') abrirPanel(panel.hidden || panel.classList.contains('modal') ? 'esquina' : null);
   });
 
@@ -316,7 +432,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
     const g = window.foto?.gente?.cuantos?.();
     if (g) return { pueblo: g.enLaCalle, cerca: g.hay };
     const mes = new Date().getMonth() + 1, dia = ((reloj?.diaSemana ?? 0) + (reloj?.dia ?? 0)) % 7;
-    return { pueblo: Math.round(VECINOS * enLaCalle(reloj?.hora ?? 12, dia, mes)), cerca: null };
+    return { pueblo: Math.round((pueblo?.habitantes || VECINOS) * enLaCalle(reloj?.hora ?? 12, dia, mes)), cerca: null };
   }
   const abiertoDenunciar = new Set(); // (a quién se le está preguntando si denunciar)
   let tocado = -1e9; panel.addEventListener('pointerdown', () => { tocado = performance.now(); }, true);
@@ -371,6 +487,16 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
       }
       li.append(b, h, s, mas); ul.appendChild(li);
     }
+    // (por dónde se ha salido: donde se dejó, con el enlace de alguien; o, desde la web de 388, volver donde se dejó)
+    const sal = $('.salida'), sTexto = sal.querySelector('span'), bIni = $('.ir-inicio'), bVol = $('.volver');
+    let txt = '', ini = false, vol = false;
+    const cq = conQuien && otros.get(conQuien);
+    if (con) txt = conHecho && cq ? `Estás con ${nombreDe(cq)}: has venido con su enlace.` : cq ? `Yendo con ${nombreDe(cq)}…` : 'Buscando a quien te ha invitado… Si no está jugando ahora, irás a su lado en cuanto entre.';
+    else if (salida?.tipo === 'vuelta' && !movido) { txt = `Vuelves a donde lo dejaste: ${salida.w || 'el pueblo'}.`; ini = !!inicioDeSerie; }
+    else if (antes && !movido && desde388 && Math.hypot(antes.x - p.x, antes.z - p.z) > 30) { txt = `La última vez lo dejaste en ${antes.w || 'otro sitio del pueblo'}.`; vol = true; }
+    sal.hidden = !txt; sTexto.textContent = txt;
+    bIni.hidden = !ini; bIni.textContent = 'Empezar en ' + textoDe(inicioDeSerie);
+    bVol.hidden = !vol; bVol.textContent = 'Volver allí';
     const vacio = $('.vacio');
     vacio.hidden = estadoCon !== 'dentro' || lista.length > 0;
     vacio.textContent = 'Ahora no hay nadie más. Quien entre aparecerá en el pueblo con su nombre encima, y saldrá aquí.';
@@ -383,6 +509,18 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   boton.addEventListener('click', () => abrirPanel(panel.hidden || panel.classList.contains('modal') ? 'esquina' : null));
   $('.cerrar').addEventListener('click', () => (panel.classList.contains('modal') ? entrar() : abrirPanel(null)));
   $('.entrar').addEventListener('click', entrar);
+  let movido = false;
+  $('.ir-inicio').addEventListener('click', () => { movido = true; entrar(); irAlInicio(); });
+  $('.volver').addEventListener('click', () => { movido = true; abrirPanel(null); volverAntes(); });
+  // (el enlace para quedar: copiarlo o, en el móvil, compartirlo)
+  $('.quedar').addEventListener('click', () => { const i = $('.invitar'); i.hidden = !i.hidden; if (!i.hidden) { const t = i.querySelector('input'); t.value = enlace(); t.focus(); t.select(); } });
+  $('.invitar .copiar').addEventListener('click', async (e) => {
+    const t = $('.invitar input'); t.select();
+    try { await navigator.clipboard.writeText(t.value); e.target.textContent = 'Copiado'; } catch (err) { try { document.execCommand('copy'); e.target.textContent = 'Copiado'; } catch (err2) { /* que lo copie a mano */ } }
+    setTimeout(() => { e.target.textContent = 'Copiar'; }, 2000);
+  });
+  if (navigator.share) { const b = $('.invitar .compartir'); b.hidden = false; b.addEventListener('click', () => navigator.share({ title: NOMBRE_PUEBLO + ', 388 Pueblos', text: `Ven a ${NOMBRE_PUEBLO}: aparecerás a mi lado.`, url: enlace() }).catch(() => {})); }
+  $('.invitar input').addEventListener('keydown', (e) => e.stopPropagation());
   $('.cambiar').addEventListener('click', () => { const f = $('form.nombre'); f.hidden = !f.hidden; if (!f.hidden) { const i = f.querySelector('input'); i.value = nombre.split(' ')[0]; i.focus(); i.select(); } });
   $('form.nombre').addEventListener('submit', (e) => {
     e.preventDefault(); const n = limpio(e.target.querySelector('input').value);
@@ -398,6 +536,11 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
     if ((cadaSitio -= dt) <= 0) { cadaSitio = 1; const e = miEstado(); sitio = donde.de(e.x, e.z); sitioTexto = donde.texto(sitio, e.x, e.z); }
     genteM.mover(dt);
     mandar(false);
+    // (desde la web de 388, después de posarse: durante el vuelo y el vídeo, la cámara es de la entrada)
+    if (con && !conHecho && estadoCon === 'dentro' && (!desde388 || document.documentElement.classList.contains('aterrizado'))) {
+      if (conQuien) juntarse();
+      else if (ahora > tBusco && ahora < conHasta) { tBusco = ahora + 4000; enviar({ t: 'busco', c: con }); }
+    }
     // (quien lleva 25 s sin decir nada se ha ido aunque el servidor no lo haya dicho: cada uno manda algo cada 2 s)
     for (const o of otros.values()) if (ahora - (o.visto || ahora) > 25000) quitar(o.id);
     // (los más cercanos, con figura; los demás, sin ella. Con su personaje del editor, los primeros que lo llevan)
@@ -453,6 +596,8 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
     cerca, gesto, abrirPanel, entrar,
     nombre: () => nombre,
     copiloto: () => coches.copiloto(),
+    enlace, viajar, irAlInicio, volverAntes,
+    cita: () => ({ con, conQuien, conHecho, salida: salida?.tipo || null, antes: antes ? { x: antes.x, z: antes.z, w: antes.w } : null }),
     estado: () => ({ conectado: estadoCon, yo, orden: miOrden, anfitrion: genteM.anfitrion(), modoGente: window.foto?.gente?.modoActual ?? null,
       otros: [...otros.values()].map((o) => ({ id: o.id, n: o.p.n, x: o.p.x, z: o.p.z, m: o.p.m, k: o.p.k, l: o.p.l, h: o.p.h, co: o.p.co, figura: !!o.fig?.raiz?.enabled, tipo: o.fig?.tipo || null, pj: !!o.pj, errFig: o.figError || null, msFig: o.figMs ?? null, anim: o.fig?.estado || null, dice: o.hasta > performance.now() ? o.bocaDom.textContent : null })),
       sitio: donde.texto(sitio), panel: panel.hidden ? null : panel.className, vecinos: vecinos(), coches: coches.estado(), silencio: [...silencio], callado: calladoHasta > performance.now() }),

@@ -7,7 +7,7 @@ const sinTramo = (n) => n.replace(/\s*\(\d+\)$/, '');
 // qué hace (m): la figura es la de la chica, de ahí el femenino
 export const HACE = ['quieta', 'paseando', 'corriendo', 'sentada', 'bailando', 'rezando', 'hablando', 'conduciendo', 'encendiendo una vela', 'saltando', 'de copiloto'];
 
-export function montarDonde({ vida, reloj }) {
+export function montarDonde({ vida, reloj, iglesia = 'la iglesia' }) {
   const CALLES = [], deCalle = [];
   for (const c of vida?.calles || []) {
     const n = sinTramo(c.nombre || ''); if (!n) continue;
@@ -21,7 +21,7 @@ export function montarDonde({ vida, reloj }) {
     plazas.push({ n, p: p.p });
   }
   const LUGARES = [...new Set(plazas.map((p) => p.n))];
-  const IGLESIA = LUGARES.push('la iglesia de Santa María') - 1;
+  const IGLESIA = LUGARES.push(iglesia) - 1;   // (su nombre, el de la escena: src/main.js, «dentro»)
   // (la rejilla de los puntos de las calles, de 40 m: buscar la más cercana mira solo las celdas de alrededor)
   const R = 40, rej = new Map(), clave = (x, z) => Math.floor(x / R) + ',' + Math.floor(z / R);
   for (const q of deCalle) { const k = clave(q[0], q[1]); if (!rej.has(k)) rej.set(k, []); rej.get(k).push(q); }
@@ -52,7 +52,7 @@ export function montarDonde({ vida, reloj }) {
   // en palabras: «Calle Malfeitos · en la Plaza de España» (o «junto a…», o «dentro de la iglesia de Santa María»)
   function texto({ k, l }, x, z) {
     const calle = k >= 0 && k < CALLES.length ? CALLES[k] : 'en las afueras';
-    if (l === IGLESIA) return 'dentro de la iglesia de Santa María';
+    if (l === IGLESIA) return 'dentro de ' + iglesia;
     if (l >= 0 && l < LUGARES.length) {
       const en = x != null && plazas.some((p_) => p_.n === LUGARES[l] && dentro(x, z, p_.p));
       if (en || calle === LUGARES[l]) return `en la ${LUGARES[l]}`;

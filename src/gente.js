@@ -69,7 +69,8 @@ const elegir = (l) => l[Math.floor(Math.random() * l.length)];
 const pesar = (pesos) => { let s = 0; for (const p of pesos) s += p; let r = Math.random() * s; for (let i = 0; i < pesos.length; i++) { r -= pesos[i]; if (r <= 0) return i; } return pesos.length - 1; };
 const angulo = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export async function montarGente({ app, vida, carpeta, glb, camara, chica, reloj, q, movil, iglesia, conducir }) {
+// (habitantes: los del pueblo de la escena —su «pueblo» en src/main.js—; de serie, los de Guareña)
+export async function montarGente({ app, vida, carpeta, glb, camara, chica, reloj, q, movil, iglesia, conducir, habitantes = VECINOS }) {
   const fq = q.get('gente');
   if (fq === '0' || !vida?.calles?.length) return null;
   const FACTOR = fq && !isNaN(parseFloat(fq)) ? parseFloat(fq) : 1;
@@ -436,7 +437,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     for (const p of cs) cerca(p.x, p.z, RADIO, (j) => { if (contado[j] !== marca && Math.hypot(X[j] - p.x, Z[j] - p.z) < RADIO) { contado[j] = marca; pesoLocal += W[j]; } });
     const p = cs.find((c) => iglesiaCentro && Math.hypot(c.x - iglesiaCentro[0], c.z - iglesiaCentro[1]) < 45) || cs[0];
     const { h, d, m } = ahora(), TOPE = tope();
-    objetivo = Math.min(TOPE, Math.round(VECINOS * enLaCalle(h, d, m) * pesoLocal / WT * FACTOR * 2.2 * (1 - 0.65 * lluvia())));   // (con lluvia, menos en la calle)
+    objetivo = Math.min(TOPE, Math.round(habitantes * enLaCalle(h, d, m) * pesoLocal / WT * FACTOR * 2.2 * (1 - 0.65 * lluvia())));   // (con lluvia, menos en la calle)
     // (×2,2: los que se ven son los de la calle de verdad más los que están en la puerta de casa, en las terrazas y en los
     // corros, que en el plano de calles no cuentan; ver docs/gente.md)
     const misa = enMisa();
@@ -875,7 +876,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   // ---- para hablar con ellos (src/acciones.js) y para las pruebas
   const api = {
     lista: gente,
-    cuantos: () => ({ hay: gente.length, objetivo, enLaCalle: Math.round(VECINOS * enLaCalle(ahora().h, ahora().d, ahora().m)), pesoLocal: Math.round(pesoLocal), estados: gente.reduce((o, v) => ((o[v.estado] = (o[v.estado] || 0) + 1), o), {}) }),
+    cuantos: () => ({ hay: gente.length, objetivo, enLaCalle: Math.round(habitantes * enLaCalle(ahora().h, ahora().d, ahora().m)), pesoLocal: Math.round(pesoLocal), estados: gente.reduce((o, v) => ((o[v.estado] = (o[v.estado] || 0) + 1), o), {}) }),
     // el más cercano a un punto, delante de la chica si se da su rumbo
     cercano: (x, z, r = 2.2) => { let m = null, dm = r; for (const v of gente) { if (v.estado === 'llegado') continue; const d = Math.hypot(v.x - x, v.z - z); if (d < dm) { dm = d; m = v; } } return m; },
     hablar: (v, x, z) => {
