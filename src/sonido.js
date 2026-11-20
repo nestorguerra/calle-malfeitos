@@ -121,7 +121,7 @@ export function montarSonido({ app, camara, ctrl, muneco, carpeta, vida, suelo, 
   const campanadas = (n) => { const pn = panner(torre, 30, 400); const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3500 }); lp.connect(pn); for (let i = 0; i < n; i++) sonar('campanada', lp, { gan: 0.3, cuando: i * 2.6 }); };
   let ultimoMinuto = -1;
   const reloj = () => {
-    // (con la hora del juego, que pasa a 8 minutos por minuto: al pasar a otra media hora, las de la hora o una; si el reloj
+    // (con la hora del juego, que pasa a 6 minutos por minuto: al pasar a otra media hora, las de la hora o una; si el reloj
     // salta —la tecla T—, nada. De 23 a 8, calladas, como en tantos pueblos)
     const m = Math.floor(ahora().h * 60), media = Math.floor(m / 30);
     if (ultimoMinuto < 0) { ultimoMinuto = m; return; }

@@ -13,7 +13,8 @@
 //   se le denuncia (con dos denuncias se queda sin hablar 15 minutos para todos).
 // - Los coches (src/multi_coches.js): se ve conducir a los demás, los coches se quedan donde los dejan y se puede ir de
 //   copiloto. Los vecinos (src/multi_gente.js): los mismos para todos los que andan cerca.
-// - La hora, la de la sala (reloj.sincronizar): la misma para todos.
+// - La hora, la de la sala (reloj.sincronizar) si al entrar allí es de día: la misma para los que la toman. Si no, cada
+//   uno con la suya, que empieza por la mañana: se entra siempre de día.
 // - «Guareña, ahora» (la pantalla inicial y el botón «Quién hay», P): cuántas personas, cuántos vecinos y dónde está cada
 //   persona (src/donde.js).
 // - Fase 3: una sala por pueblo (la del «pueblo» de la escena, src/main.js: su código del INE, su nombre y sus vecinos);
@@ -223,7 +224,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
 
   // ---- los demás
   const otros = new Map(); // id → { id, o (orden de llegada), p (su estado), pj, buf: [[t, x, y, z, r]], fig, dom, nombreDom, bocaDom, hasta }
-  let ws = null, yo = null, miOrden = null, reintentos = 0, estadoCon = 'buscando', sincronizado = false, calladoHasta = 0;
+  let ws = null, yo = null, miOrden = null, reintentos = 0, estadoCon = 'buscando', horaVista = false, t0Sala = null, calladoHasta = 0;
   const v1 = new Vec3(), v2 = new Vec3();
   const nombreDe = (o) => o?.p?.n || 'alguien';
   const figuras = montarFiguras({ app, q, personaje, clips, mio, movil, glb: glb || ((u) => u) });
@@ -274,8 +275,14 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   function recibir(d) {
     if (d.t === 'sala') {
       yo = d.yo; miOrden = d.o ?? null;
-      // (la hora de la sala: la de España cuando entró el primero; la T solo cambia la de cada uno)
-      if (!sincronizado || q.get('resincronizar') !== '0') { if (reloj?.sincronizar?.(d.t0, d.ahora)) sincronizado = true; }
+      // (la hora de la sala: la mañana cuando entró el primero; la T solo cambia la de cada uno. Se toma al entrar, y solo
+      // si allí es de día: si no, se sigue con la propia, que empezó por la mañana. Al reconectar, se vuelve a poner en hora
+      // solo quien la tomó y solo si la sala es la misma —el mismo t0—: una sala que se vació y volvió a empezar ya no
+      // devuelve a nadie a las 10:00 en plena partida. Y también solo de día: quien tuvo el juego parado —el portátil
+      // cerrado, la pestaña detrás— mientras la sala seguía no salta a la noche sin haberla jugado; quien juega seguido no
+      // lo nota, su reloj ya va con el de la sala)
+      if (!horaVista) { horaVista = true; if (reloj?.sincronizar?.(d.t0, d.ahora, true)) t0Sala = d.t0; }
+      else if (t0Sala && d.t0 === t0Sala && q.get('resincronizar') !== '0') reloj?.sincronizar?.(d.t0, d.ahora, true);
       for (const o of d.otros || []) { const x = crear(o.id, o.p, o.o ?? null); if (x) { x.o = o.o ?? x.o; x.pj = o.pj || null; } }
       coches.sala(d.coches);
       if (miPj) enviar({ t: 'pj', f: miPj });

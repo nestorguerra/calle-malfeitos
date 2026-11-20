@@ -1,8 +1,10 @@
 // El reloj del juego y la luz según la hora (docs/pueblo_vivo.md; el usuario, 14-11-2026: «en función de la hora del día
 // […] que el juego vaya fluctuando a lo largo del día, como si fuera un GTA»).
-// - La hora: empieza en la de España de ahora y corre como en los juegos de mundo abierto, un día en 3 horas (8 minutos del
-//   juego por minuto; 15-11-2026, el usuario: «que la velocidad del día sea más lenta, unas 3 horas las 24 del día»; antes,
-//   en 48 minutos). ?hora=19:30 la pone y ?ritmo= cambia lo que corre (minutos del juego por segundo; 0, parada). La T la
+// - La hora: empieza siempre por la mañana, a las 10:00 (20-11-2026, el usuario: «que siempre que arranque el juego sea de
+//   día, sea por la mañana»; antes, en la de España de ahora, y de noche se entraba de noche), con la fecha de hoy, y
+//   corre como en los juegos de mundo abierto, un día en 4 horas (6 minutos del juego por minuto; 20-11-2026, el usuario:
+//   «un día tienen que ser 4 horas, pero que siempre entres de día»; desde el 15-11-2026, en 3 horas, y antes, en 48
+//   minutos). ?hora=19:30 la pone y ?ritmo= cambia lo que corre (minutos del juego por segundo; 0, parada). La T la
 //   adelanta una hora (con mayúsculas, la atrasa); en el móvil, tocar la hora. Se ve en una pastilla arriba.
 // - La luna: por su camino de verdad (una cuenta sencilla, de un grado), con su fase; se ve en el cielo y de noche alumbra
 //   desde donde está, más cuanto más llena. Sin ella en el cielo, la noche queda a la luz de las estrellas, muy floja.
@@ -18,6 +20,14 @@ import { BLEND_ADDITIVE, Color, CULLFACE_NONE, Entity, Mesh, MeshInstance, PRIMI
 const LAT = 38.861609, LON = -6.10126; // (el origen del pueblo, tools/blender/guarena.sh)
 const rad = Math.PI / 180;
 
+// la hora con la que se empieza: por la mañana (también la de la sala del multijugador cuando entra el primero)
+const MANANA = 10;
+// lo que dura un día del juego, en horas de verdad
+const HORAS_DEL_DIA = 4;
+// el sol, bien arriba: con él a esta altura (grados) o más es de día del todo (los faroles se apagan a 4°). Quien entra
+// en una sala solo toma su hora si allí es así de día, y si lo sigue siendo QUEDA_DIA horas del juego después (media hora
+// de verdad): sin eso, quien entraba en una sala con algo más de una hora veía anochecer a los trece minutos
+const DE_DIA = 6, QUEDA_DIA = 3;
 // la hora de España (Europe/Madrid) de una fecha: [horas decimales, desfase con UTC en horas, día de la semana 0 = domingo]
 function horaEspana(fecha) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' })
@@ -94,10 +104,11 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   const base = { luz: sol.light ? sol.light.intensity : 2, amb: app.scene.skyboxIntensity, exposicion: app.scene.exposure,
     color: sol.light ? [sol.light.color.r, sol.light.color.g, sol.light.color.b] : [1, 1, 1], niebla: [app.scene.fog.color.r, app.scene.fog.color.g, app.scene.fog.color.b], rebote: rebote?.light?.intensity || 0 };
   const ahora = new Date();
-  let [hora, desfase, diaSemana] = horaEspana(ahora);
+  const [, desfase, diaSemana] = horaEspana(ahora); // (de la de España de ahora, la fecha y el día de la semana; la hora no)
+  let hora = MANANA;
   const inicio = q.get('hora');
   if (inicio) { const [h, m] = inicio.split(':').map(Number); hora = (h || 0) + (m || 0) / 60; }
-  const ritmo = parseFloat(q.get('ritmo') ?? (inicio ? '0' : String(24 * 60 / (3 * 3600)))); // (minutos del juego por segundo de verdad: un día en 3 horas)
+  const ritmo = parseFloat(q.get('ritmo') ?? (inicio ? '0' : String(24 * 60 / (HORAS_DEL_DIA * 3600)))); // (minutos del juego por segundo de verdad: un día en 4 horas)
   // (la fecha, la de España: entre las 0:00 y la 1:00 —las 2:00 en verano— la de UTC aún es la de ayer, y la luna salía con
   // un día de desfase toda la partida; 15-11-2026, la revisión del juego)
   const local = new Date(ahora.getTime() + desfase * 3600000), medianoche = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
@@ -206,7 +217,7 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   let ultimoAplicado = -1;
   // (la luz del cielo, sin pasar por scene.skyboxIntensity: en PlayCanvas, cada cambio rehace la malla del cielo y obliga a
   // rehacer los sombreadores de todos los materiales, y aplicar() la cambia hasta 16 veces por segundo al amanecer, al
-  // atardecer y con nubes (el día pasa a 8 minutos por segundo). En el procesador de un portátil normal eran tirones de
+  // atardecer y con nubes (el día pasa a 6 minutos del juego por minuto). En el procesador de un portátil normal eran tirones de
   // 200 a 900 ms; según la hora del juego, sí o no: «algunas ocasiones entra con tirones» (15-11-2026). El motor solo usa
   // el número como uniforme en cada fotograma, así que basta con dejarlo en su sitio)
   const luzCielo = (v) => { if ('_skyboxIntensity' in app.scene) app.scene._skyboxIntensity = v; else app.scene.skyboxIntensity = v; };
@@ -289,12 +300,18 @@ export function montarReloj({ app, sol, rebote, post, escena, q, vida, hud, inte
   aplicar(true);
   // (dentro de la iglesia, con su planta: lo mismo para todos —src/acciones.js, src/gente.js—, que antes lo medía cada uno a
   // su manera; null si aún no se tiene la planta. 15-11-2026, la revisión del juego)
-  // la hora de la sala del multijugador (src/multi.js; docs/multijugador.md): la de España cuando entró el primero (t0) y,
-  // desde ahí, al ritmo de siempre: así todos los que están ven la misma hora. Con ?hora= o sin ritmo, no (las pruebas)
-  const sincronizar = (t0, ahoraServidor) => {
+  // la hora de la sala del multijugador (src/multi.js; docs/multijugador.md): la mañana cuando entró el primero (t0) y,
+  // desde ahí, al ritmo de siempre: así los que están ven la misma hora. Con ?hora= o sin ritmo, no (las pruebas).
+  // alEntrar: solo si en la sala es de día (el sol a DE_DIA grados o más) y le queda día por delante (QUEDA_DIA). Si allí
+  // cae la tarde, es de noche o amanece, no se toma y cada uno sigue con la suya, que empezó por la mañana: se entra
+  // siempre de día (20-11-2026, el usuario: «que siempre entres de día»; con la hora de la sala a secas, quien entraba en
+  // una que llevaba más de una hora ocupada arrancaba al atardecer o de noche). Devuelve si se ha tomado
+  const sincronizar = (t0, ahoraServidor, alEntrar = false) => {
     if (inicio || !ritmo || !t0) return false;
-    const [h0, , ds0] = horaEspana(new Date(t0));
-    const h = h0 + ritmo * Math.max(0, (ahoraServidor || Date.now()) - t0) / 60000, dias = Math.floor(h / 24);
+    const [, , ds0] = horaEspana(new Date(t0));
+    const h = MANANA + ritmo * Math.max(0, (ahoraServidor || Date.now()) - t0) / 60000, dias = Math.floor(h / 24);
+    const solA = (hh) => posicionSol(diaDelAno + Math.floor(hh / 24), ((hh - desfase) % 24 + 24) % 24)[0]; // (hh: horas del juego desde las 0:00 del primer día)
+    if (alEntrar && (solA(h) < DE_DIA || solA(h + QUEDA_DIA) < DE_DIA)) return false;
     estado.hora = h - dias * 24; estado.diaSemana = ds0; estado.dia = dias; aplicar(true);
     return true;
   };

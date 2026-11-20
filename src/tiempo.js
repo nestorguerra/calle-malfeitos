@@ -4,8 +4,8 @@
 // - De Open-Meteo (https://open-meteo.com, gratis, sin clave ni cuenta, datos CC BY 4.0): la previsión por horas de hoy y
 //   de los dos días siguientes en las coordenadas del pueblo (38,86° N, 6,10° O). Lo único que se le manda son esas
 //   coordenadas. Se pide al entrar y otra vez cada media hora.
-// - El juego corre más que el reloj (un día en 3 horas: src/reloj.js), así que cada hora del juego toma la de la previsión
-//   de esa hora de ese día: al entrar, la de ahora mismo; luego, la que toca.
+// - El juego corre más que el reloj (un día en 4 horas: src/reloj.js), así que cada hora del juego toma la de la previsión
+//   de esa hora de ese día: al entrar, la de las 10:00 de hoy (el juego empieza por la mañana); luego, la que toca.
 // - Lo que se ve: las nubes (una cúpula de nubes que se mueven con el viento, más o menos cerrada según lo nublado y más
 //   gris si llueve), lo que apagan el sol y el cielo, la bruma (más espesa con niebla o lluvia), la lluvia (o la nieve)
 //   alrededor de la cámara, inclinada por el viento, y los relámpagos de las tormentas. La pastilla de la hora dice la
