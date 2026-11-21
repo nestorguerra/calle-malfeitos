@@ -84,7 +84,7 @@ async function montar() {
     <input type="text" id="opinion-nombre" maxlength="40" autocomplete="off">
     <div class="estado" role="status" aria-live="polite"></div>
     <div class="fila"><button type="button" class="principal enviar">Enviar</button><button type="button" class="cerrar">Cancelar</button></div>
-    <p class="aviso">Al enviar, la captura, tu texto, tu voz (si la grabas), dónde estabas en el juego y qué navegador y pantalla usas llegan al equipo de 388 Pueblos, que los usa solo para mejorar el juego. La voz se pasa a texto con OpenAI y todo le llega al equipo por correo. No se envía nada hasta que pulses «Enviar». <a href="https://pueblos388.onrender.com/privacidad.html" target="_blank" rel="noopener">Privacidad</a></p>
+    <p class="aviso">Al enviar, la captura, tu texto, tu voz (si la grabas), dónde estabas en el juego y qué navegador y pantalla usas llegan al equipo de 388 Pueblos, que los usa solo para mejorar el juego. La voz se pasa a texto con OpenAI y todo se guarda para que lo vea el equipo. No se envía nada hasta que pulses «Enviar». <a href="https://pueblos388.onrender.com/privacidad.html" target="_blank" rel="noopener">Privacidad</a></p>
   </div>`;
   document.body.appendChild(capa);
   const $ = (s) => capa.querySelector(s);
