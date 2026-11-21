@@ -1,7 +1,8 @@
 // La opinión de quien prueba el juego (21-11-2026; el usuario: «estoy con beta testers […] un botón […] que siempre que
 // lo aprietes puedas hacer una captura de pantalla y escribir un feedback, incluso por voz»). Con la O, o con el botón
 // «Opinión»: saca una captura de lo que se ve en ese momento y abre un panel para escribir y, si se quiere, grabar la
-// voz (hasta un minuto). Al enviar, va al servidor de 388 (/api/opinion), que transcribe la voz y se lo pasa al equipo.
+// voz (hasta un minuto). Al enviar, va al servidor de 388 (/api/opinion), que transcribe la voz y se lo manda al equipo
+// por correo.
 // - No se envía nada hasta que se pulsa «Enviar». El micrófono solo se pide al pulsar «Grabar voz».
 // - La W no puede ser: es andar. La P es «Quién hay».
 // - Se carga sola desde la página (no toca src/main.js): espera a window.foto.
@@ -83,7 +84,7 @@ async function montar() {
     <input type="text" id="opinion-nombre" maxlength="40" autocomplete="off">
     <div class="estado" role="status" aria-live="polite"></div>
     <div class="fila"><button type="button" class="principal enviar">Enviar</button><button type="button" class="cerrar">Cancelar</button></div>
-    <p class="aviso">Al enviar, la captura, tu texto, tu voz (si la grabas), dónde estabas en el juego y qué navegador y pantalla usas llegan al equipo de 388 Pueblos, que los usa solo para mejorar el juego. La voz se pasa a texto con OpenAI y todo llega a un canal privado de Discord. No se envía nada hasta que pulses «Enviar». <a href="https://pueblos388.onrender.com/privacidad.html" target="_blank" rel="noopener">Privacidad</a></p>
+    <p class="aviso">Al enviar, la captura, tu texto, tu voz (si la grabas), dónde estabas en el juego y qué navegador y pantalla usas llegan al equipo de 388 Pueblos, que los usa solo para mejorar el juego. La voz se pasa a texto con OpenAI y todo le llega al equipo por correo. No se envía nada hasta que pulses «Enviar». <a href="https://pueblos388.onrender.com/privacidad.html" target="_blank" rel="noopener">Privacidad</a></p>
   </div>`;
   document.body.appendChild(capa);
   const $ = (s) => capa.querySelector(s);
