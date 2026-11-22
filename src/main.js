@@ -1142,7 +1142,7 @@ let fpsSuave = 0;
 // empieza en ese escalón
 const NIVELES = [
   () => {}, // (0: todo)
-  (on) => { if (post) post.rendering.samples = on ? 1 : parseInt(q.get('msaa') || '4', 10); },
+  (on) => { if (post) post.rendering.samples = on && !adaptar.dentro ? 1 : parseInt(q.get('msaa') || '4', 10); },   // (dentro del coche, el multimuestreo no se quita)
   (on) => { if (sol.light) sol.light.shadowResolution = on ? 2048 : parseInt(q.get('sres') || '4096', 10); },
   (on) => { if (post?.ssao) post.ssao.scale = on ? 0.35 : AO_ESCALA; },
   null, // (4: la resolución, por debajo de 1×)
@@ -1153,12 +1153,12 @@ const NIVELES = [
 ];
 // (la resolución que de verdad se dibuja: en una pantalla normal, de 1×, el tope de 1,5× no hace nada)
 const ratio = () => Math.min(device.maxPixelRatio, window.devicePixelRatio || 1);
-const adaptar = { max: ratio(), t: 0, prueba: 0, espera: 10, probando: false, ms: [], nivel: 0, activo: q.get('adaptar') !== '0' };
+const adaptar = { max: ratio(), t: 0, prueba: 0, espera: 10, probando: false, ms: [], nivel: 0, activo: q.get('adaptar') !== '0', dentro: false };
 const ponerNivel = (n) => {
   n = Math.max(0, Math.min(NIVELES.length - 1, n));
   while (adaptar.nivel < n) { adaptar.nivel++; NIVELES[adaptar.nivel]?.(true); }
   while (adaptar.nivel > n) { NIVELES[adaptar.nivel]?.(false); adaptar.nivel--; }
-  const techo = adaptar.nivel ? Math.min(1, adaptar.max) : adaptar.max; // (con algo quitado, nunca por encima de 1×)
+  const techo = adaptar.nivel && !adaptar.dentro ? Math.min(1, adaptar.max) : adaptar.max; // (con algo quitado, nunca por encima de 1×; dentro del coche, sí)
   if (ratio() > techo + 0.01) { device.maxPixelRatio = techo; app.resizeCanvas(); }
 };
 const ponerRatio = (r) => { device.maxPixelRatio = r; app.resizeCanvas(); };
@@ -1166,6 +1166,9 @@ const ponerRatio = (r) => { device.maxPixelRatio = r; app.resizeCanvas(); };
 // para subir, lo mismo al revés
 const bajar = (paso) => {
   const r = ratio(), n = adaptar.nivel, uno = Math.min(1, adaptar.max);
+  // (dentro del coche: primero la resolución hasta 1×, luego la sombra y la oclusión; el multimuestreo y la resolución por
+  // debajo de 1×, no: son lo que quita los dientes de sierra del salpicadero y los montantes)
+  if (adaptar.dentro) { if (r > uno + 0.01) ponerRatio(Math.max(uno, r - paso)); else if (n < 3) ponerNivel(Math.max(2, n + 1)); else if (n < 5) ponerNivel(5); return; }
   if (n === 0 && r > uno + 0.01) ponerRatio(Math.max(uno, r - paso));
   else if (n < 4) ponerNivel(n + (paso > 0.2 && n < 3 ? 2 : 1));
   else if (n === 4 && r > 0.71) ponerRatio(Math.max(0.7, r - paso));
@@ -1179,6 +1182,18 @@ const subir = () => {
   else if (r < adaptar.max - 0.01) ponerRatio(Math.min(adaptar.max, r + 0.125));
 };
 if (q.get('nivel') || movil) ponerNivel(parseInt(q.get('nivel') || '3', 10));
+// la vista de dentro del coche, con toda la resolución y el multimuestreo (22-11-2026; el usuario: «cuando conduzcas por
+// dentro… se ven el chasis del coche muy pixelado, mejora la resolución por dentro»): de cerca, el salpicadero, el techo y
+// los montantes, a 1× en una pantalla Retina y sin multimuestreo, salían con escalones de dos píxeles. Al entrar, la
+// resolución sube a su tope (?dpr, 1,5× de serie) y vuelve el multimuestreo; si no llega a 55 fps, baja la resolución
+// hasta 1× y quita sombra y oclusión, pero no el multimuestreo. Al salir, lo de antes. En el móvil, nada (su memoria no da).
+const calidadDentro = (on) => {
+  if (movil || !post || on === adaptar.dentro) return;
+  adaptar.dentro = on; adaptar.t = 0; adaptar.ms.length = 0; adaptar.prueba = 0; adaptar.probando = false;
+  const msaa = parseInt(q.get('msaa') || '4', 10);
+  if (on) { post.rendering.samples = msaa; if (ratio() < adaptar.max - 0.01) ponerRatio(adaptar.max); }
+  else { post.rendering.samples = adaptar.nivel >= 1 ? 1 : msaa; const techo = adaptar.nivel ? Math.min(1, adaptar.max) : adaptar.max; if (ratio() > techo + 0.01) ponerRatio(techo); }
+};
 // (no mira hasta que el juego se ha asentado: 6 s después de estar listo y, entrando desde la web de 388, después de posarse
 // la cámara. Antes, los fotogramas de la carga y del vuelo de la entrada, lentos por lo que aún se monta, le hacían bajar
 // la calidad nada más entrar, y quitar o poner el multimuestreo obliga a la gráfica a rehacer lo de todos los materiales:
@@ -1285,7 +1300,8 @@ window.foto = {
     return { min: lo.map((v) => Math.round(v * 10) / 10), max: hi.map((v) => Math.round(v * 10) / 10), splats: A.splat.resource.gsplatData?.numSplats };
   },
   resolucion: () => { const b = app.graphicsDevice.backBufferSize; return [b.x, b.y]; },
-  calidad: () => ({ nivel: adaptar.nivel, ratio: ratio(), fps: Math.round(fpsSuave) }),
+  calidad: () => ({ nivel: adaptar.nivel, ratio: ratio(), fps: Math.round(fpsSuave), dentro: adaptar.dentro, muestras: post?.rendering?.samples }),
+  calidadDentro,
   zonas: () => zonas && { cargadas: zonas.cargadas(), total: zonas.Z.zonas.length, radio: zonas.radio }, // (la calidad adaptable, para tools/lento.py)
   // (para la entrada, src/desde388.js: dibujar con o sin multimuestreo, para dejar preparado lo de los dos y que la
   // calidad adaptable pueda cambiarlo luego sin tirón)

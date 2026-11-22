@@ -370,6 +370,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     tpc._camPos?.copy(camara.getPosition()); tpc._camLookAt?.copy(sitio);
     camara.camera.nearClip = est.near ?? camara.camera.nearClip; camara.camera.fov = est.fov ?? camara.camera.fov;
     if (post?.taa && est.taa !== undefined) post.taa.enabled = est.taa;
+    window.foto?.calidadDentro?.(false);
     if (est.motor) est.motor.g.gain.setTargetAtTime(0, sonido.ctx.currentTime, 0.4);
     C = null; est.modo = 'pie'; est.bajando = false; est.k = null;
     ponerBotones();
@@ -388,6 +389,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       const a = new Asset('conducir_' + k.c.tipo, 'container', { url: glb(url) });
       a.once('load', () => ok(a)); a.once('error', mal); app.assets.add(a); app.assets.load(a);
     });
+    asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = 8; });   // (como las del pueblo: el salpicadero y la tapicería, vistos de lado, nítidos)
     if (q.get('refraccion') !== '1') asset.resource.materials.forEach(({ resource: m }) => { if (m && m.refraction > 0) { m.refraction = 0; m.update(); } });
     const e = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
     // (sus mallas, como las del pueblo: normales en 8 bits y sin la copia de JavaScript, que no hace falta: la física del
@@ -461,6 +463,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   function cambiarVista() {
     if (est.modo !== 'conduciendo') return;
     est.vista = est.vista === 'fuera' ? 'dentro' : 'fuera'; est.mirar.yaw = est.mirar.pitch = 0; ponerVidrios();
+    window.foto?.calidadDentro?.(est.vista === 'dentro');   // (dentro, con toda la resolución y el multimuestreo: src/main.js)
     if (est.vista === 'dentro') { est.near = camara.camera.nearClip; est.fov = camara.camera.fov; camara.camera.nearClip = 0.04; camara.camera.fov = parseFloat(q.get('fovcoche') || (innerWidth < innerHeight ? '82' : '58')); } // (en vertical, más abierta: con 62° de alto quedaban 30 de ancho)
     else { camara.camera.nearClip = est.near ?? 0.1; camara.camera.fov = est.fov ?? camara.camera.fov; }
     ponerBotones();
