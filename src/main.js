@@ -28,6 +28,7 @@ import { montarMulti, salidaMulti } from './multi.js';
 import { bancosSolidos, montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
+import { montarTeclado } from './teclado.js';
 
 const q = new URLSearchParams(location.search);
 // (los errores, también en pantalla: en el enlace de claude.ai el juego va en un marco y su consola no se ve desde fuera)
@@ -856,6 +857,7 @@ const tpc = ctrl.script.create(ThirdPersonController, { properties: {
   // milisegundo; la fuerza, en proporción, para que ande y corra a lo mismo de antes. ?fluido=0: como antes)
   ...(q.get('fluido') !== '0' ? { modelTurnSmoothing: Math.exp(-1 / (FLUIDO.giro * 1000)), velocityDampingGround: Math.exp(-1 / (FLUIDO.inercia * 1000)) } : {}),
 } });
+montarTeclado(tpc);   // (WASD y flechas sin tener que capturar el ratón, y nada se queda pulsado: src/teclado.js)
 if (q.get('fluido') !== '0') {
   tpc.speedGround *= 0.0995 / FLUIDO.inercia * FLUIDO.fuerza;   // (con la inercia, a la fuerza de antes le falta un 10 %: así anda a 1,1 m/s, como antes)
   tpc.sprintMult *= parseFloat(q.get('sprint') || '0.915');   // (y corre a 2,6 m/s, como antes: con la fuerza de andar, corría a 2,85)
