@@ -221,6 +221,7 @@ if (q.get('foto388')) {
     // la cámara vuelve al controlador, en el mismo sitio (sin lo que se tocó mientras tanto)
     cam.camera.fov = fovJuego; app.scene.fog.density = brumaJuego;
     for (const k of ['_desktopInput', '_mobileInput', '_gamepadInput']) try { tpc[k]?.read?.(); } catch (e) { /* ignore */ }
+    tpc._soltarTeclas?.();   // (y lo pulsado, a cero: si no, una tecla que se soltara luego restaría de más —src/teclado.js—)
     tpc._camInitialized = false;
     tpc.enabled = true;
     document.documentElement.classList.add('aterrizado');
