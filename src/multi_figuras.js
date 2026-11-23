@@ -12,7 +12,8 @@ import { brazoSaludo } from './gestos.js';
 import { montarPersonaje } from './personaje.js';
 
 // las animaciones, por número (a): las cuatro de src/main.js y las de las acciones (src/acciones.js, «chica_<f>»)
-export const ESTADOS = ['Quieto', 'Andar', 'Correr', 'Saltar', 'Sentarse', 'Sentada', 'SentadaIglesia', 'Levantarse', 'Bailar', 'Arrodillada', 'Tocar'];
+// (Conduciendo y Copiloto, al final: van con el clip del modelo de coche en el que se va —f.sentar—, y no se mandan)
+export const ESTADOS = ['Quieto', 'Andar', 'Correr', 'Saltar', 'Sentarse', 'Sentada', 'SentadaIglesia', 'Levantarse', 'Bailar', 'Arrodillada', 'Tocar', 'Conduciendo', 'Copiloto'];
 const DE_ACCIONES = { Sentarse: ['chica_sentarse', false], Sentada: ['chica_sentada', true], SentadaIglesia: ['chica_sentada_iglesia', true], Levantarse: ['chica_levantarse', false], Bailar: ['chica_bailar', true], Arrodillada: ['chica_arrodillada', true], Tocar: ['chica_tocar', false] };
 // (a qué paso va cada estado: los de la chica, src/main.js; los del personaje del editor, su PASO_MI)
 const VEL = { chica: { Correr: 1.35, Saltar: 1.8 }, propio: { Andar: 4 / 3, Correr: 2.6 / 2.137, Saltar: 1.8 } };
@@ -32,7 +33,7 @@ export function personajeCorto(e) {
   return out;
 }
 
-export function montarFiguras({ app, q, personaje, clips, mio, movil, glb }) {
+export function montarFiguras({ app, q, personaje, clips, mio, movil, glb, carpetaChica = './escenas/chica/' }) {
   const MAX_PROPIOS = movil ? 0 : parseInt(q.get('multipropios') ?? '3', 10);
   let n = 0;
   const cargar = (url) => new Promise((ok) => {
@@ -42,6 +43,13 @@ export function montarFiguras({ app, q, personaje, clips, mio, movil, glb }) {
   });
   const juego = (ruta, cuerpo) => Promise.all([cuerpo ? cargar(ruta + cuerpo) : null, ...['quieto', 'andar', 'correr', 'saltar'].map((x) => cargar(ruta + x + '.glb'))])
     .then(([c, Quieto, Andar, Correr, Saltar]) => ({ personaje: c, clips: { Quieto, Andar, Correr, Saltar } }));
+  // (las posturas de ir en coche, una por modelo de coche —conduciendo_<tipo>, copiloto_<tipo>: tools/blender/chica_coche.py—,
+  // se bajan la primera vez que hacen falta: unos 110 kB cada una)
+  const enCoche = {};
+  const clipCoche = (nombre) => {
+    if (enCoche[nombre] === undefined) { enCoche[nombre] = null; cargar(carpetaChica + nombre + '.glb').then((a) => { enCoche[nombre] = a || false; }); }
+    return enCoche[nombre] || null;
+  };
   // (lo de cada clase de figura: lo de aquí si es la misma con la que se juega; si no, se baja la primera vez)
   const recursos = { chica: mio ? null : { personaje, clips }, propio: mio ? { clips } : null };
   const pidiendo = {};
@@ -78,6 +86,17 @@ export function montarFiguras({ app, q, personaje, clips, mio, movil, glb }) {
         if (f.estado === x) return;
         if (!puestos.has(x)) { const c = clipDe(x); if (!c) return; capa.assignAnimation(x, c, vel[x] || 1, DE_ACCIONES[x] ? DE_ACCIONES[x][1] : true); puestos.add(x); }
         f.estado = x; capa.transition(x, x === 'Saltar' ? 0.1 : 0.25);
+      },
+      // sentada en un coche (estado: 'Conduciendo' o 'Copiloto') con la postura de ese modelo (nombre: su clip); false
+      // mientras se baja
+      sentar(estado, nombre) {
+        const a = clipCoche(nombre); if (!a) return false;
+        if (f.clipCoche?.[estado] !== nombre) {
+          let t = pista(a); if (t && mi) t = mi.pista(t, {}); if (!t) return false;
+          capa.assignAnimation(estado, t, 1, true); puestos.add(estado); (f.clipCoche ||= {})[estado] = nombre;
+          if (f.estado === estado) f.estado = null; // (otro coche, la misma postura: que entre la nueva)
+        }
+        f.animar(estado); return true;
       },
       // (encender o apagar la figura: con su melena simulada, que cuelga de la escena)
       ver(si) { if (raiz.enabled !== si) { raiz.enabled = si; mi?.ocultarMelena?.(!si); } },

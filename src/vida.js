@@ -438,7 +438,13 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
   const placasDe = (k) => {
     if (!conPlacas || !PLACAS[k.c.tipo]) return null;
     const m = k.lejos.render?.meshInstances.find((mi) => /^matricula/.test(mi.material?.name || ''))?.material; if (!m) return null;
-    const e = new Entity('placas_cerca'); e.addComponent('render', { meshInstances: [new MeshInstance(placasCerca[k.c.tipo] ||= mallaPlacas(k.c.tipo, 0.014, 1.04), m)], castShadows: false, receiveShadows: true });
+    // (la malla, una por modelo y compartida por las placas de todos sus coches de cerca —y las del coche de otro jugador,
+    // src/multi_coches.js—, con una referencia más para siempre: al quitar las últimas placas que la usaban —el coche de
+    // cerca, al aparcarlo después de conducirlo; el de otro jugador, al bajarse— el motor la destruía, y el siguiente coche
+    // de ese modelo la usaba ya destruida: error de la gráfica, «Vertex attribute slot … is not present». Salía con el
+    // Octavia 2000 y el Superb, que suelen estar solos en su calle. 23-11-2026)
+    const malla = placasCerca[k.c.tipo] ||= (() => { const m_ = mallaPlacas(k.c.tipo, 0.014, 1.04); m_.incRefCount(); return m_; })();
+    const e = new Entity('placas_cerca'); e.addComponent('render', { meshInstances: [new MeshInstance(malla, m)], castShadows: false, receiveShadows: true });
     return e;
   };
   const coches = [];

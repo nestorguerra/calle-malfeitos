@@ -81,7 +81,7 @@ const NOMBRES = ['Lucía', 'Carmen', 'María', 'Paula', 'Elena', 'Julia', 'Sara'
 const LETRAS = /[^A-Za-zÁÉÍÓÚÑáéíóúñü]/g;
 const guardado = { leer: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, poner: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } } };
 
-export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, vida, personaje, clips, movil, desde388, mio, estadoMio, glb, pueblo, salida, inicioDeSerie, iglesia }) {
+export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, vida, personaje, clips, movil, desde388, mio, estadoMio, glb, pueblo, salida, inicioDeSerie, iglesia, carpetas }) {
   const { ws: urlServidor, ine } = servidor(q, pueblo);
   if (q.get('multi') === '0' || !ine) return null;
   const NOMBRE_PUEBLO = pueblo?.nombre || 'El pueblo';
@@ -227,9 +227,9 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   let ws = null, yo = null, miOrden = null, reintentos = 0, estadoCon = 'buscando', horaVista = false, t0Sala = null, calladoHasta = 0;
   const v1 = new Vec3(), v2 = new Vec3();
   const nombreDe = (o) => o?.p?.n || 'alguien';
-  const figuras = montarFiguras({ app, q, personaje, clips, mio, movil, glb: glb || ((u) => u) });
+  const figuras = montarFiguras({ app, q, personaje, clips, mio, movil, glb: glb || ((u) => u), carpetaChica: carpetas?.chica || undefined });
   const enviar = (o) => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(o)); } catch (e) { /* se reconecta */ } } };
-  const coches = montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe });
+  const coches = montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe, yoId: () => yo, carpeta: carpetas?.coches || null });
   const genteM = montarGenteMulti({ enviar, otros, yo: () => yo, miOrden: () => miOrden, miPos: () => ctrl.getPosition() });
 
   function crear(id, p = {}, orden = null) {
@@ -538,6 +538,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   // ---- cada fotograma: los demás en su sitio, sus nombres y bocadillos; lo de aquí, al servidor
   const DIBUJA = 150, LEJOS_NOMBRE = 45, TOPE_FIG = movil ? 8 : 24;
   let cuenta = 0;
+  const GIRO_SENTADA = parseFloat(q.get('girosentada') || '0');   // (cómo se gira la figura sentada respecto al rumbo del coche)
   app.on('update', (dt) => {
     const ahora = performance.now(), ver = ahora - 120, p = ctrl.getPosition();
     if ((cadaSitio -= dt) <= 0) { cadaSitio = 1; const e = miEstado(); sitio = donde.de(e.x, e.z); sitioTexto = donde.texto(sitio, e.x, e.z); }
@@ -560,15 +561,17 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
       if (j > 0 && b[j][0] > ver) { const [t0, x0, y0, z0, r0] = b[j - 1], [t1, x1, y1, z1, r1] = b[j], k = Math.max(0, Math.min(1, (ver - t0) / Math.max(1, t1 - t0))); let dr = r1 - r0; dr -= Math.round(dr / 360) * 360; x = x0 + (x1 - x0) * k; y = y0 + (y1 - y0) * k; z = z0 + (z1 - z0) * k; r = r0 + dr * k; }
       else [, x, y, z, r] = b[b.length - 1];
       coches.dibujar(o, x, y, z, r, dt);
-      const d = Math.hypot(x - p.x, z - p.z), enCoche = o.p.m === 7 || o.p.m === 10, conFigura = d < DIBUJA && i < TOPE_FIG && !enCoche;
+      // (quien va en un coche, sentado en su asiento: src/multi_coches.js; si no se sabe en qué coche, sin figura)
+      const d = Math.hypot(x - p.x, z - p.z), enCoche = o.p.m === 7 || o.p.m === 10, sit = enCoche ? coches.asiento(o) : null, conFigura = d < DIBUJA && i < TOPE_FIG && (!enCoche || !!sit);
       const propio = conFigura && !!o.pj && propios < figuras.MAX_PROPIOS && d < (o.fig?.tipo === 'propio' ? 90 : 60);
       if (propio) propios++;
       const f = conFigura ? figuras.de(o, propio) : o.fig;
       if (f) {
         f.ver(conFigura);
         if (conFigura) {
-          f.raiz.setPosition(x, y, z); f.raiz.setEulerAngles(0, r, 0);
-          f.animar(ESTADOS[o.p.a] || 'Quieto'); f.raiz.anim.speed = o.p.s ?? 1; f.saludo?.mover(dt);
+          if (sit) { f.raiz.setPosition(sit.x, sit.y, sit.z); f.raiz.setEulerAngles(0, sit.r + GIRO_SENTADA, 0); if (!(sit.clip && f.sentar(o.p.m === 7 ? 'Conduciendo' : 'Copiloto', sit.clip))) f.animar('Sentada'); f.raiz.anim.speed = 1; }
+          else { f.raiz.setPosition(x, y, z); f.raiz.setEulerAngles(0, r, 0); f.animar(ESTADOS[o.p.a] || 'Quieto'); f.raiz.anim.speed = o.p.s ?? 1; }
+          f.saludo?.mover(dt);
           if (f.mi) f.mi.actualizar(dt, camara);   // (el parpadeo, la mirada y la melena simulada, que si no se mueve se queda atrás)
         }
       }
@@ -612,5 +615,6 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
     silenciar: (id, si = true) => silenciar(otros.get(id), si),
     denunciar: (id) => denunciar(otros.get(id)),
     subirCopiloto: (id) => coches.subir(id), bajarCopiloto: () => coches.bajar(),
+    vistaCopiloto: (v) => coches.vista(v), mirarCopiloto: (g, a) => coches.mirar(g, a),   // (para las pruebas)
   };
 }

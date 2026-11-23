@@ -1123,7 +1123,7 @@ if (escena.vida && q.get('vida') !== '0') {
   // src/multi_figuras.js)
   if (chica && vida) trasListo.then(() => { try { const m = montarMulti({ app, q, escena: nombre, ctrl, muneco, tpc, camara, reloj, vida, personaje: mio ? null : A.personaje,
     clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388', mio: !!mi, estadoMio: mi?.estado || null, glb,
-    pueblo: escena.pueblo, salida, inicioDeSerie, iglesia: escena.dentro?.nombre }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
+    pueblo: escena.pueblo, salida, inicioDeSerie, iglesia: escena.dentro?.nombre, carpetas: { coches: escena.vida?.replace('vida.json', ''), chica: escena.chica } }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
   // (la sombra de contacto bajo los pies de la chica y de los vecinos de cerca: src/sombras.js)
   if (modelo) { try { montarSombras({ app, muneco, ctrl, camara, gente: () => window.foto?.gente, reloj, q }); } catch (e) { console.warn('sombras de contacto:', e); } }
 }

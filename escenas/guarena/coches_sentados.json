@@ -1,0 +1,93 @@
+{
+ "nota": "dónde va sentado quien va en un coche: el origen de la figura (y sus ojos), en el marco del coche del juego —x adelante, y arriba, z a la derecha, desde el suelo bajo el centro—, con su clip conduciendo_<tipo> o copiloto_<tipo> (escenas/chica). Lo saca tools/blender/chica_coche.py",
+ "tipos": {
+  "polo": {
+   "conductor": [
+    -0.134,
+    0.0955,
+    -0.3332
+   ],
+   "copiloto": [
+    -0.1717,
+    0.0984,
+    0.3332
+   ],
+   "ojos_copiloto": [
+    -0.2747,
+    1.1907,
+    0.3332
+   ],
+   "ojos_conductor": [
+    -0.0887,
+    1.2305,
+    -0.3332
+   ]
+  },
+  "octavia2000": {
+   "conductor": [
+    0.1456,
+    0.0215,
+    -0.3903
+   ],
+   "copiloto": [
+    0.1046,
+    0.0245,
+    0.3903
+   ],
+   "ojos_copiloto": [
+    -0.0105,
+    1.1094,
+    0.3903
+   ],
+   "ojos_conductor": [
+    0.0527,
+    1.1089,
+    -0.3903
+   ]
+  },
+  "octavia2005": {
+   "conductor": [
+    0.0647,
+    0.093,
+    -0.3615
+   ],
+   "copiloto": [
+    0.0645,
+    0.0963,
+    0.3615
+   ],
+   "ojos_copiloto": [
+    -0.0199,
+    1.1988,
+    0.3615
+   ],
+   "ojos_conductor": [
+    -0.0114,
+    1.1895,
+    -0.3615
+   ]
+  },
+  "superb": {
+   "conductor": [
+    0.0929,
+    0.1071,
+    -0.405
+   ],
+   "copiloto": [
+    0.0917,
+    0.1101,
+    0.405
+   ],
+   "ojos_copiloto": [
+    0.0126,
+    1.2152,
+    0.405
+   ],
+   "ojos_conductor": [
+    0.149,
+    1.2436,
+    -0.405
+   ]
+  }
+ }
+}

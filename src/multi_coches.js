@@ -12,7 +12,7 @@ import { Entity, Quat, Vec3 } from 'playcanvas';
 const RAD = 180 / Math.PI;
 const CDM = 0.42; // (el centro del coche que se conduce, sobre el suelo: src/conducir.js)
 
-export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe }) {
+export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe, yoId = () => null, carpeta = null }) {
   const coches = () => window.foto?.coches?.coches || null;
   const conducir = () => window.foto?.conducir?.estado?.() || null;
   const porNodo = (n) => coches()?.find((k) => k.c.nodo === n) || null;
@@ -100,6 +100,42 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   }
   function sale(id) { quitarRemoto(id, true); if (copi?.id === id) bajarCopiloto(); }
 
+  // ---- dónde va sentado quien va en un coche (22-11-2026; el usuario: «si sube alguien más en el coche y van dos personas,
+  // que se puedan ver mutuamente los dos en el coche», y luego «tiene que estar bien sentados, que el personaje que conduce
+  // se vea coger el volante bien y sentado bien en el asiento del conductor, y lo mismo del copiloto»): el conductor, a la
+  // izquierda, con las manos en el volante; el copiloto, a la derecha, con las manos en los muslos; los dos con la cadera
+  // en el cojín y la espalda en el respaldo de su asiento de verdad. Dónde va cada figura en cada modelo de coche (y los
+  // ojos del copiloto, para su cámara de dentro), en escenas/<escena>/coches_sentados.json, y su postura en
+  // escenas/chica/conduciendo_<tipo>.glb y copiloto_<tipo>.glb: los dos de tools/blender/chica_coche.py, en el marco del
+  // coche (x adelante, y arriba, z a la derecha, desde el suelo bajo su centro —el que manda quien conduce, CDM más
+  // arriba—). Sin ellos, como antes: un poco hacia atrás, a un lado y a ras del asiento, con la animación de estar sentada
+  // (src/multi.js); ?asiento=atras,lado,alto para ajustar ese de repuesto, y ?sentados=0, como antes (para comparar)
+  let SENTADOS = {};
+  if (carpeta && new URLSearchParams(location.search).get('sentados') !== '0') fetch(carpeta + 'coches_sentados.json').then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.tipos) SENTADOS = j.tipos; }).catch(() => {});
+  const AS = (q_ => { const v = (q_ || '').split(',').map(parseFloat); return { atras: isFinite(v[0]) ? v[0] : 0.3, lado: isFinite(v[1]) ? v[1] : 0.37, alto: isFinite(v[2]) ? v[2] : 0.1 }; })(new URLSearchParams(location.search).get('asiento'));
+  const conTipo = (rc) => (rc?.ult ? [...rc.ult, rc.k.c.tipo] : null);
+  function cocheDe(o) {   // ([x, y, z, rumbo, tipo] del coche en el que va o: el que lleva, o el de quien le lleva —que puedo ser yo—)
+    if (o.p.m === 7) return conTipo(remotos.get(o.id));
+    if (o.p.m === 10) {
+      if (o.p.cp && o.p.cp === yoId()) { const c = conducir(); return c?.modo === 'conduciendo' && c.pos ? [c.pos[0], c.pos[1], c.pos[2], c.rumbo ?? 0, c.tipo] : null; }
+      return conTipo(remotos.get(o.p.cp));
+    }
+    return null;
+  }
+  // (el sitio de la figura —su origen, a sus pies— y, para el copiloto, sus ojos; clip: la postura de ese modelo de coche)
+  function sitioAsiento(u, conductor) {
+    const [x, y, z, r, tipo] = u, a = r / RAD, fx = Math.sin(a), fz = Math.cos(a), rx = -Math.cos(a), rz = Math.sin(a);
+    const S = SENTADOS[tipo], o = S?.[conductor ? 'conductor' : 'copiloto'];
+    const en = (v) => [x + fx * v[0] + rx * v[2], y - CDM + v[1], z + fz * v[0] + rz * v[2]];
+    if (o) {
+      const [px, py, pz] = en(o);
+      return { x: px, y: py, z: pz, r, fx, fz, clip: (conductor ? 'conduciendo_' : 'copiloto_') + tipo, ojo: !conductor && S.ojos_copiloto ? en(S.ojos_copiloto) : null };
+    }
+    const s = conductor ? -1 : 1;
+    return { x: x - fx * AS.atras + rx * AS.lado * s, y: y - CDM + AS.alto, z: z - fz * AS.atras + rz * AS.lado * s, r, fx, fz, clip: null, ojo: null };
+  }
+  const asiento = (o) => { const u = cocheDe(o); return u ? sitioAsiento(u, o.p.m === 7) : null; };
+
   // ---- lo mío: al bajarme del coche que conducía, dónde lo dejo (para los demás y para quien entre después)
   let antes = null;
   function vigilarMio() {
@@ -121,18 +157,19 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   for (const ev of ['pointerdown', 'pointerup', 'touchstart']) bBajar.addEventListener(ev, (e) => e.stopPropagation());
   bBajar.addEventListener('click', () => bajarCopiloto());
   const ayuda = document.getElementById('ayuda'); let ayudaAntes = null;
-  const AYUDA_COPI = movil ? 'Vas de copiloto · arrastra para mirar' : 'Vas de copiloto · arrastra con el ratón para mirar · E bajar';
+  const AYUDA_COPI = movil ? 'Vas de copiloto · arrastra para mirar' : 'Vas de copiloto · arrastra con el ratón para mirar · C vista de dentro · E bajar';
   function subirCopiloto(o) {
     const rc = remotos.get(o.id); if (!rc || copi || !ctrl.enabled) return false;
     if (window.foto?.acciones?.estado?.()?.modo && window.foto.acciones.estado().modo !== 'pie') return false;
     tpc?.fire?.('speed', 0); ctrl.enabled = false;
-    copi = { id: o.id, k: rc.k, pos: camara.getPosition().clone(), giro: 0, alto: 0, quieto: 0 };
+    copi = { id: o.id, k: rc.k, pos: camara.getPosition().clone(), giro: 0, alto: 0, quieto: 0, vista: 'fuera' };
     bBajar.hidden = false;
     if (ayuda) { ayudaAntes = ayuda.textContent; ayuda.textContent = AYUDA_COPI; }
     return true;
   }
   function bajarCopiloto() {
     if (!copi) return;
+    if (copi.vista === 'dentro') vistaCopiloto('fuera');
     const rc = remotos.get(copi.id);
     const ult = rc?.ult || null;
     let sitio = null;
@@ -158,9 +195,38 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
     copi = null; bBajar.hidden = true;
     if (ayuda && ayudaAntes != null) { ayuda.textContent = ayudaAntes; ayudaAntes = null; }
   }
+  // (de copiloto, la vista de dentro, desde su asiento, como la del conductor —src/conducir.js—: se ve a quien conduce, al
+  // lado. Las lunas, claras desde dentro; la cámara, más cerca de la cara y con más campo; y la calidad de dentro —src/main.js—)
+  const claras = new Map();
+  function lunas(raiz, claro) {
+    for (const r of raiz.findComponents('render')) for (const mi of r.meshInstances) {
+      const m = mi._lunaAntes || mi.material;
+      if (!/glass|cristal|vidrio|luna/i.test(m.name || '') && !(m.opacity < 0.99)) continue;
+      if (claro) {
+        if (!claras.has(m)) { const c = m.clone(); c.opacity = Math.min(m.opacity ?? 1, 0.12); c.diffuse.set(0.85, 0.9, 0.92); c.diffuseMap = null; c.update(); claras.set(m, c); }
+        mi._lunaAntes = m; mi.material = claras.get(m);
+      } else if (mi._lunaAntes) { mi.material = mi._lunaAntes; mi._lunaAntes = null; }
+    }
+  }
+  function vistaCopiloto(v) {
+    if (!copi) return;
+    const rc = remotos.get(copi.id);
+    copi.vista = v; copi.giro = copi.alto = 0;
+    if (v === 'dentro') {
+      copi.near = camara.camera.nearClip; copi.fov = camara.camera.fov;
+      camara.camera.nearClip = 0.04; camara.camera.fov = innerWidth < innerHeight ? 82 : 58;
+      if (rc) lunas(rc.raiz, true);
+    } else {
+      camara.camera.nearClip = copi.near ?? camara.camera.nearClip; camara.camera.fov = copi.fov ?? camara.camera.fov;
+      if (rc) lunas(rc.raiz, false);
+      copi.pos.copy(camara.getPosition());
+    }
+    window.foto?.calidadDentro?.(v === 'dentro');
+  }
   addEventListener('keydown', (e) => {
     if (!copi || e.repeat || e.target?.tagName === 'INPUT') return;
     if (e.code === 'KeyE' || e.code === 'KeyF' || e.code === 'Escape') { e.preventDefault(); bajarCopiloto(); }
+    else if (e.code === 'KeyC' || e.code === 'KeyV') { e.preventDefault(); vistaCopiloto(copi.vista === 'dentro' ? 'fuera' : 'dentro'); }
   });
   // (mirar alrededor: arrastrando con el ratón o el dedo; al soltar, la cámara vuelve sola detrás del coche)
   let arrastre = null;
@@ -178,6 +244,14 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
     const [x, y, z, r] = rc.ult;
     ctrl.setPosition(x, y + 0.6, z); // (su sitio, con el coche: para lo que lo mira —el sonido, los vecinos, las zonas—)
     if (!arrastre) { copi.quieto += dt; if (copi.quieto > 1.5) { copi.giro *= Math.exp(-dt * 1.5); copi.alto *= Math.exp(-dt * 1.5); } }
+    if (copi.vista === 'dentro') {
+      // (los ojos, sobre su asiento; mirando adelante, o adonde arrastre, hasta 120° a cada lado)
+      // (en los ojos de su figura sentada; sin ellos, 1,12 m sobre el asiento)
+      const s = sitioAsiento(conTipo(rc), false), g = Math.max(-120, Math.min(120, copi.giro)) / RAD, h = copi.alto / RAD * 0.8;
+      const ax = s.fx * Math.cos(g) + s.fz * Math.sin(g), az = s.fz * Math.cos(g) - s.fx * Math.sin(g), [ex, ey, ez] = s.ojo || [s.x, s.y + 1.12, s.z];
+      camara.setPosition(ex, ey, ez); vm.set(ex + ax * 10, ey - Math.tan(h) * 10, ez + az * 10); camara.lookAt(vm);
+      return;
+    }
     const a = (r + 180 + copi.giro) / RAD, dist = 6.4, alto = 2.3 + copi.alto * 0.06;
     vc.set(x + Math.sin(a) * dist, y + alto, z + Math.cos(a) * dist);
     copi.pos.lerp(copi.pos, vc, 1 - Math.exp(-dt * 5));
@@ -216,7 +290,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   });
 
   return {
-    dibujar, dejado, sale, cerca,
+    dibujar, dejado, sale, cerca, asiento,
     sala: (cs) => { for (const [n, v] of Object.entries(cs || {})) if (Array.isArray(v) && v.length === 4) dejado(n, ...v); },
     // (lo que va en mi estado: el coche en el que voy y con quién; de copiloto, el sitio del coche)
     mio: () => {
@@ -227,6 +301,8 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
     copiloto: () => !!copi,
     bajar: bajarCopiloto,
     subir: (id) => { const o = otros.get(id); return o ? subirCopiloto(o) : false; },
-    estado: () => ({ remotos: [...remotos.entries()].map(([id, rc]) => ({ id, coche: rc.k.c.nodo, pos: rc.ult, v: Math.round(rc.v * 10) / 10 })), copiloto: copi ? { id: copi.id, coche: copi.k.c.nodo } : null }),
+    estado: () => ({ remotos: [...remotos.entries()].map(([id, rc]) => ({ id, coche: rc.k.c.nodo, pos: rc.ult, v: Math.round(rc.v * 10) / 10 })), copiloto: copi ? { id: copi.id, coche: copi.k.c.nodo, vista: copi.vista } : null }),
+    vista: (v) => vistaCopiloto(v),
+    mirar: (g, a) => { if (copi) { copi.giro = g; copi.alto = a; copi.quieto = -1e9; } },
   };
 }
