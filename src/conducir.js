@@ -136,7 +136,9 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     // (de un aparcamiento: los de la plaza de la iglesia, puestos uno a uno a propósito; los que tienen nueve coches o más a
     // menos de 15 m, y los que están a menos de 8 m de uno de esos, como el de la esquina de una fila)
     const conCaja = coches.coches.filter((k) => k.caja), densos = conCaja.filter((k) => conCaja.filter((o) => o !== k && d_(o, k) < 15).length >= 9);
-    const deAparcamiento = (k) => /^coche_iglesia/.test(k.c.nodo) || densos.includes(k) || densos.some((o) => d_(o, k) < 8);
+    // (y los de una plaza fichada de las calles copiadas de la real, marcados en vida.json —«a_proposito»—: la fila de la plaza la
+    // Parada, sin bordillo cerca, se quitaba entera; tanda 2, 24-11-2026)
+    const deAparcamiento = (k) => /^coche_iglesia/.test(k.c.nodo) || k.c.a_proposito === true || densos.includes(k) || densos.some((o) => d_(o, k) < 8);
     for (const k of conCaja) {
       const c = k.caja;
       // (y los que tienen una pared dentro de su caja, por delante, por detrás o a un lado: metidos en una casa. Un rayo
