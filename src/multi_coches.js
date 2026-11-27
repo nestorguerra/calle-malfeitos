@@ -33,7 +33,7 @@ export function montarCochesMulti({ app, q = null, ctrl, tpc, muneco, camara, mo
       c.x = x; c.z = z; c.dx = Math.cos(yaw / RAD); c.dz = -Math.sin(yaw / RAD); c.y0 += dy; c.y1 += dy;
       c.e.setPosition(x, (c.y0 + c.y1) / 2, z); c.e.setEulerAngles(0, yaw, 0); c.e.enabled = true; c.e.rigidbody?.teleport(c.e.getPosition(), c.e.getRotation());
     }
-    if (k.cerca) { k.cerca.destroy(); k.cerca = null; } // (src/vida.js la vuelve a hacer en el sitio nuevo)
+    if (k.cerca) { if (!k._slot) k.cerca.destroy(); else k.cerca.enabled = false; k.cerca = null; } // (src/vida.js la vuelve a poner en el sitio nuevo)
     k.lejos.enabled = true; k.conducido = false; k.remoto = null;
   }
   // los coches que otros han dejado en otro sitio (al entrar, de la sala; luego, cada «cd»). Si aún no están los coches, después

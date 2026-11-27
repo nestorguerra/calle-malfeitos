@@ -30,6 +30,8 @@ export function montarSombras({ app, muneco, ctrl, camara, gente, reloj, q }) {
     const P = [[-ancho, -largo], [ancho, -largo], [ancho, largo], [-ancho, largo]];
     for (let i = 0; i < 4; i++) { const [a, b] = P[i]; pos[o + i * 3] = x + a * c + b * s; pos[o + i * 3 + 1] = y; pos[o + i * 3 + 2] = z - a * s + b * c; }
   };
+  let opAct = -1;
+  const cerca = [];
   app.on('update', () => {
     let k = 0;
     // la chica (no mientras conduce), con su cuerpo: un poco más larga hacia donde mira
@@ -37,17 +39,29 @@ export function montarSombras({ app, muneco, ctrl, camara, gente, reloj, q }) {
       const p = muneco.getPosition(), f = muneco.forward, y = Math.atan2(f.x, f.z);   // (el rumbo, del vector: los ángulos de Euler, pasados los 90°, salen reflejados y la mancha se torcía)
       quad(k++, p.x, p.y + 0.015, p.z, y, 0.34, 0.27);
     }
-    // los vecinos de cerca
+    // los vecinos de cerca (sin asignar matrices nuevas cada fotograma)
     const g = gente?.(), c = camara.getPosition();
     if (g?.lista) {
-      const cerca = g.lista.filter((v) => v.raiz?.enabled !== false && Math.abs(v.x - c.x) < 28 && Math.abs(v.z - c.z) < 28)
-        .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z)).slice(0, MAX - k);
-      for (const v of cerca) { const s = (v.info?.alto || 1.7) / 1.7; quad(k++, v.x, v.y + 0.015, v.z, v.yaw || 0, 0.36 * s, 0.28 * s); }
+      cerca.length = 0;
+      const lista = g.lista;
+      for (let i = 0; i < lista.length; i++) {
+        const v = lista[i];
+        if (v.raiz?.enabled === false) continue;
+        const dx = v.x - c.x, dz = v.z - c.z;
+        if (dx > -28 && dx < 28 && dz > -28 && dz < 28) cerca.push({ v, d2: dx * dx + dz * dz });
+      }
+      if (cerca.length > MAX - k) cerca.sort((a, b) => a.d2 - b.d2);
+      const lim = Math.min(cerca.length, MAX - k);
+      for (let i = 0; i < lim; i++) {
+        const v = cerca[i].v, s = (v.info?.alto || 1.7) / 1.7;
+        quad(k++, v.x, v.y + 0.015, v.z, v.yaw || 0, 0.36 * s, 0.28 * s);
+      }
     }
     pos.fill(0, k * 12);
     mesh.setPositions(pos); mesh.update(PRIMITIVE_TRIANGLES, false);
-    // (más marcada de día y a la sombra que de noche)
-    mat.opacity = 0.5 - 0.18 * (reloj?.noche || 0); mat.update();
+    // (más marcada de día y a la sombra que de noche; solo mat.update() cuando cambia la opacidad)
+    const op = 0.5 - 0.18 * (reloj?.noche || 0);
+    if (Math.abs(op - opAct) > 0.005) { opAct = op; mat.opacity = op; mat.update(); }
     e.enabled = k > 0;
   });
   return e;

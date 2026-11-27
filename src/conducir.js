@@ -370,7 +370,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     cuerpoCoche?.salir();
     C.modelo?.soltar?.(); chasis.destroy();
     caja.e.enabled = true; caja.e.rigidbody.teleport(caja.e.getPosition(), caja.e.getRotation());
-    if (k.cerca) { k.cerca.destroy(); k.cerca = null; } // (montarCoches la vuelve a hacer en su sitio nuevo)
+    if (k.cerca) { if (!k._slot) k.cerca.destroy(); else k.cerca.enabled = false; k.cerca = null; } // (montarCoches la vuelve a poner en su sitio nuevo)
     k.lejos.enabled = true; k.conducido = false;
     // la chica, al lado, mirando hacia fuera del coche; la cámara, desde donde está
     ctrl.setPosition(sitio); ctrl.enabled = true; ctrl.rigidbody.teleport(sitio); ctrl.rigidbody.linearVelocity = Vec3.ZERO;
@@ -497,7 +497,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     if (est.modo !== 'pie' || !ctrl.enabled || (modoChica && modoChica !== 'pie')) { if (est.cerca) { est.cerca = null; ponerBotones(); } return; }
     const p = ctrl.getPosition(); let mejor = null, dm = 1.1;
     for (const k of coches.coches) {
-      const c = k.caja; if (!c || k.conducido || k.obra || !k.lejos.enabled) continue;   // (a un contenedor de obra no se sube nadie)
+      const c = k.caja; if (!c || k.conducido || k.obra || (!k.lejos.enabled && !k.cerca?.enabled && !k.instanciadoVisible)) continue;   // (a un contenedor de obra no se sube nadie; con coches instanciados lejos.enabled puede estar apagado)
       const rx = p.x - c.x, rz = p.z - c.z; if (rx * rx + rz * rz > 16) continue;
       const lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx; // (en sus ejes: largo y ancho)
       const d = Math.hypot(Math.max(0, Math.abs(lx) - c.L / 2), Math.max(0, Math.abs(lz) - c.W / 2));

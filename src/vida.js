@@ -1,7 +1,7 @@
 // La vida de la calle (fase 5 del plan de calidad): el viento, la ropa tendida en algunos balcones y los faldones de los
 // toldos verdes que mueve. Todo sale de vida.json (tools/blender/calle_gris.py), en coordenadas del juego. La tela se
 // mueve en la CPU: son unos pocos cientos de vértices, y así sirve igual con WebGPU que con WebGL2.
-import { Asset, BLEND_NONE, Color, BUFFER_DYNAMIC, BoundingBox, CULLFACE_NONE, Entity, MeshInstance, PRIMITIVE_TRIANGLES, Quat, StandardMaterial, Texture, Vec3, VertexBuffer, VertexFormat, createMesh } from 'playcanvas';
+import { Asset, BLEND_NONE, Color, BUFFER_DYNAMIC, BoundingBox, BoundingSphere, CULLFACE_NONE, Entity, MeshInstance, PRIMITIVE_TRIANGLES, Quat, StandardMaterial, Texture, Vec3, VertexBuffer, VertexFormat, createMesh } from 'playcanvas';
 
 // el viento: una brisa de tarde con rachas (de 0 a 1)
 export function viento(t) {
@@ -97,19 +97,23 @@ export function montarVida({ app, vida, materiales, q }) {
     t_.mesh.setUvs(0, uv); t_.mesh.update();
     t_.fuerza = 0.08; raiz.addChild(t_.e); telas.push(t_);
   }
-  let t = 0;
-  // (a más de «tope» m de la cámara, la tela ni se dibuja ni se mueve: de lejos no se ve, y cada una era una llamada de
-  // dibujo más su sombra; ?telas=1000 las deja todas)
-  const tope = parseFloat(q.get('telas') || '45'), tope2 = tope * tope; let cam = null;
+  let t = 0, cuadroT = 0;
+  // (a más de «tope» m de la cámara, la tela ni se dibuja ni se mueve; animación a media cadencia para ahorrar subidas a GPU)
+  const tope = parseFloat(q.get('telas') || '55'), tope2 = tope * tope; let cam = null;
   app.on('update', (dt) => {
-    t += dt; const w = viento(t);
+    t += dt;
+    if ((cuadroT++ & 1) && cuadroT > 4) return;
+    const w = viento(t);
     cam = cam || app.root.findComponents('camera')[0]?.entity; const P = cam?.getPosition();
+    const fwd = cam?.forward;
     for (const c of telas) {
       const { base, pos, nx, ny, n, fase, fuerza } = c;
       if (P) {
-        const cerca = (base[0] - P.x) ** 2 + (base[2] - P.z) ** 2 < tope2 * (fuerza < 0.1 ? 2.25 : 1); // (los toldos, hasta 1,5 veces más lejos)
+        const dx = base[0] - P.x, dz = base[2] - P.z, d2 = dx * dx + dz * dz;
+        const cerca = d2 < tope2 * (fuerza < 0.1 ? 2.25 : 1); // (los toldos, hasta 1,5 veces más lejos)
         if (c.e.enabled !== cerca) c.e.enabled = cerca;
         if (!cerca) continue;
+        if (fwd && d2 > 64 && dx * fwd.x + dz * fwd.z < -4) continue; // (detrás de la cámara: no se rehace el vértice)
       }
       for (let j = 1; j < ny; j++) {
         const v = j / (ny - 1), caida = v ** 1.4;
@@ -366,19 +370,21 @@ export async function montarDinamicas({ app, vida, ctrl, q }) {
       }
       if (movido) { mallaCables.setPositions(posCables); mallaCables.update(PRIMITIVE_TRIANGLES, false); }
     }
-    // hojas
-    for (const h of estado.hojas) {
+    // hojas (raycast del suelo repartido cada 3 fotogramas)
+    for (let hi = 0; hi < estado.hojas.length; hi++) {
+      const h = estado.hojas[hi];
       const p = h.e.getPosition();
       if (!h.colocada || Math.hypot(p.x - c.x, p.z - c.z) > 22) { // (se recolocan cerca de la chica, viento arriba)
         const x = c.x - DIR.x * azar(4, 14) + azar(-3, 3), z = c.z - DIR.z * azar(4, 14) + azar(-3, 3);
-        h.e.setPosition(x, sueloEn(x, z, 1.5) + 0.005, z); h.colocada = true; h.v.set(0, 0, 0); continue;
+        h.sy = sueloEn(x, z, 1.5); h.e.setPosition(x, h.sy + 0.005, z); h.colocada = true; h.v.set(0, 0, 0); continue;
       }
       const empuje = Math.max(0, w - 0.45) * 6; // (solo con las rachas)
       h.v.x += (DIR.x * empuje - h.v.x * 1.5) * dt; h.v.z += (DIR.z * empuje - h.v.z * 1.5) * dt;
       const vel = Math.hypot(h.v.x, h.v.z); h.giro += vel * 400 * dt;
       if (vel < 0.05) continue; // (quieta: ni se mueve ni se busca el suelo)
       const x = p.x + h.v.x * dt, z = p.z + h.v.z * dt, salto = Math.min(0.12, vel * 0.04) * Math.abs(Math.sin(h.giro * 0.02));
-      h.e.setPosition(x, sueloEn(x, z, p.y + 0.4) + 0.005 + salto, z); h.e.setEulerAngles(vel > 0.2 ? Math.sin(h.giro * 0.05) * 60 : 0, h.giro, 0);
+      if ((cuadro + hi) % 3 === 0 || h.sy === undefined) h.sy = sueloEn(x, z, p.y + 0.4);
+      h.e.setPosition(x, h.sy + 0.005 + salto, z); h.e.setEulerAngles(vel > 0.2 ? Math.sin(h.giro * 0.05) * 60 : 0, h.giro, 0);
     }
   });
   return estado;
@@ -390,10 +396,13 @@ export async function montarDinamicas({ app, vida, ctrl, q }) {
 // ?cercamax=6 a la vez (4 en el móvil: más eran unas 35 llamadas de dibujo cada uno). (Hasta el 15-11-2026, a 9 m y cuatro: el usuario, «cuando te acercas se nota
 // cuando aumentan de resolución… que sea desde más lejos para que no se note mientras se juega»)
 export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil = false }) {
-  const dist = parseFloat(q.get('cerca') || (movil ? '14' : '22')), maxCerca = parseInt(q.get('cercamax') || (movil ? '4' : '6'), 10);
-  // (y los de más de ?lejos=70 m, apagados: con los 82 coches de las otras calles, las llamadas de dibujo pasaban de ~1.150
-  // a ~2.250 en Malfeitos; tan lejos, entre casas, casi nunca se ven)
-  const tope = parseFloat(q.get('lejos') || '70');
+  const dist = parseFloat(q.get('cerca') || (movil ? '16' : '26')), distFuera = dist + 4;
+  const maxCerca = parseInt(q.get('cercamax') || (movil ? '4' : '6'), 10);
+  // (visibilidad lejana con instancias GPU recortadas por frustum y sin sombra más allá de sombraTope:
+  // de 70 m pasa a 220 m en escritorio / 140 m en móvil sin pop-in ni explosión de llamadas de dibujo)
+  const tope = parseFloat(q.get('lejos') || (movil ? '140' : '220'));
+  const sombraTope = parseFloat(q.get('sombracoches') || '58');
+  const placaTope = parseFloat(q.get('placatope') || '36');
   if (!dist || !vida.coches?.length) return null;
   const a = await new Promise((ok) => { const x = new Asset('coches_cerca', 'container', { url: glb(carpeta + 'coches_cerca.glb') }); x.once('load', () => ok(x)); x.once('error', () => ok(null)); app.assets.add(x); app.assets.load(x); });
   if (!a) return null;
@@ -401,11 +410,7 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
   a.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = aniso; });
   if (q.get('refraccion') !== '1') a.resource.materials.forEach((m) => { const mt = m.resource; if (mt && mt.refraction > 0) { mt.refraction = 0; mt.update(); } }); // (los cristales, sin la refracción que dejaba ver el cielo morado: src/main.js)
   const modelos = a.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
-  // las lunas, tintadas como las de un coche de verdad (15-11-2026; el usuario: «el coche se ve pixelado»): eran una película
-  // blanquecina casi transparente, y por ella se veía el interior con las manchas a cuadros de la oclusión ambiental (que
-  // se calcula sin el cristal y no se puede quitar solo ahí). Son los cristales a la altura de las ventanillas (centro a
-  // más de 0,8 m del suelo y 12 cm de alto o más), casi transparentes y no rojos: no los de los pilotos ni los faros. En
-  // las dos versiones, la de cerca y la de lejos, para que no se note el cambio. ?lunas=0, como antes
+  // las lunas, tintadas como las de un coche de verdad (15-11-2026; el usuario: «el coche se ve pixelado»)
   const tintadas = new Set();
   const tintar = (raiz, y0) => {
     if (q.get('lunas') === '0') return;
@@ -413,21 +418,13 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
       const m = mi.material; if (!m || tintadas.has(m) || !/glass|cristal/i.test(m.name)) continue;
       const ab = mi.aabb, d = m.diffuse, rojo = d.r > 0.6 && d.g < 0.35;
       if (ab.center.y - y0 < 0.8 || ab.halfExtents.y < 0.12 || m.opacity >= 0.5 || rojo) continue;
-      tintadas.add(m); m.opacity = Math.max(0.82, m.opacity); m.diffuse = new Color(0.03, 0.035, 0.04); m.diffuseMap = null; m.gloss = Math.max(m.gloss || 0, 0.9); m.update(); // (al 62 %, de cerca aún se adivinaban los cuadros del interior; 15-11-2026)
+      tintadas.add(m); m.opacity = Math.max(0.82, m.opacity); m.diffuse = new Color(0.03, 0.035, 0.04); m.diffuseMap = null; m.gloss = Math.max(m.gloss || 0, 0.9); m.update();
     }
   };
   for (const n of new Set(vida.coches.map((c) => c.tipo))) { const b = modelos.findByName('cerca_' + n); if (b) tintar(b, b.getPosition().y); }
-  // las matrículas (15-11-2026; el usuario: «en muchas ocasiones superpones una matrícula a otra»). Las del juego van en
-  // la malla de cada coche de la calle, 4 mm por fuera de la chapa del modelo (tools/blender/coches_reales.py), y se
-  // dejaban también sobre el de cerca. Pero el de cerca sale un poco mayor (se escala por su largo, con más detalle) y su
-  // chapa queda unos milímetros por fuera de esas placas: asomaba la matrícula pintada del modelo (la amarilla del Polo, la
-  // del frontal del Octavia de 2005). Y en el Superb, la de detrás buscó la chapa plana en el parachoques, y la del modelo
-  // (rusa) está en el maletero: se veían las dos. Ahora el de cerca lleva las suyas, 1,4 cm por fuera, y la de detrás del
-  // Superb va en el maletero también en el de lejos. Dónde va cada una, en el coche: x hacia el morro, y hacia arriba
-  // (tools/blender: las del registro de la última obra, «matrículas en»). ?placas=0, como antes
   const PLACAS = { octavia2000: [[2.29, 0.33], [-2.2, 0.8]], octavia2005: [[2.35, 0.48], [-2.35, 0.48]], polo: [[2.04, 0.49], [-2.04, 0.525]], superb: [[2.47, 0.51], [-2.46, 0.57]] };
-  const MALETERO = { superb: (q.get('placasuperb') || '-2.38,0.86').split(',').map(Number) }; // (la de detrás del Superb, donde la lleva el modelo)
-  const mallaPlacas = (tipo, fuera, k = 1) => {   // (k: algo mayores las de cerca, para tapar los bordes de las pintadas)
+  const MALETERO = { superb: (q.get('placasuperb') || '-2.38,0.86').split(',').map(Number) };
+  const mallaPlacas = (tipo, fuera, k = 1) => {
     const [f, d] = PLACAS[tipo], r = MALETERO[tipo] || d, pos = [], nor = [], uv = [], ind = [], a = 0.26 * k, h = 0.055 * k;
     for (const [x0, y0, sg] of [[f[0], f[1], 1], [r[0], r[1], -1]]) {
       const x = x0 + sg * fuera, b = pos.length / 3;
@@ -437,105 +434,317 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
     return createMesh(app.graphicsDevice, pos, { normals: nor, uvs: uv, indices: ind });
   };
   const conPlacas = q.get('placas') !== '0', placasCerca = {}, placasLejos = {};
+  const mallaPlacaCerca = (tipo) => {
+    if (!conPlacas || !PLACAS[tipo]) return null;
+    return placasCerca[tipo] ||= (() => { const m_ = mallaPlacas(tipo, 0.014, 1.04); m_.incRefCount(); return m_; })();
+  };
   const placasDe = (k) => {
-    if (!conPlacas || !PLACAS[k.c.tipo]) return null;
-    const m = k.lejos.render?.meshInstances.find((mi) => /^matricula/.test(mi.material?.name || ''))?.material; if (!m) return null;
-    // (la malla, una por modelo y compartida por las placas de todos sus coches de cerca —y las del coche de otro jugador,
-    // src/multi_coches.js—, con una referencia más para siempre: al quitar las últimas placas que la usaban —el coche de
-    // cerca, al aparcarlo después de conducirlo; el de otro jugador, al bajarse— el motor la destruía, y el siguiente coche
-    // de ese modelo la usaba ya destruida: error de la gráfica, «Vertex attribute slot … is not present». Salía con el
-    // Octavia 2000 y el Superb, que suelen estar solos en su calle. 23-11-2026)
-    const malla = placasCerca[k.c.tipo] ||= (() => { const m_ = mallaPlacas(k.c.tipo, 0.014, 1.04); m_.incRefCount(); return m_; })();
+    const malla = mallaPlacaCerca(k.c.tipo); if (!malla) return null;
+    const m = k.matPlaca || k.lejos.render?.meshInstances.find((mi) => /^matricula/.test(mi.material?.name || ''))?.material; if (!m) return null;
     const e = new Entity('placas_cerca'); e.addComponent('render', { meshInstances: [new MeshInstance(malla, m)], castShadows: false, receiveShadows: true });
     return e;
   };
-  const coches = [];
+  const coches = [], basePorTipo = new Map(), pinturaPorTipo = new Map();
   for (const c of vida.coches) {
     const lejos = app.root.findByName(c.nodo), base = modelos.findByName('cerca_' + c.tipo);
-    // (la de detrás del Superb, en el maletero también de lejos: su malla de matrículas, cambiada por una con esa)
     if (conPlacas && MALETERO[c.tipo] && lejos?.render) for (const mi of lejos.render.meshInstances) if (/^matricula/.test(mi.material?.name || '')) mi.mesh = placasLejos[c.tipo] ||= mallaPlacas(c.tipo, 0.004);
     if (!lejos?.render || !base) continue;
-    const queda = /^(matricula|sombra)/; // (lo que se deja de la versión de lejos)
-    // (la sombra de contacto, pegada al suelo, y la matrícula no dan sombra: eran dos llamadas más por coche en cada cascada)
+    basePorTipo.set(c.tipo, base);
+    if (c.pintura?.length && !pinturaPorTipo.has(c.tipo)) pinturaPorTipo.set(c.tipo, c.pintura);
+    const queda = /^(matricula|sombra)/;
     for (const mi of lejos.render.meshInstances) if (queda.test(mi.material.name)) mi.castShadow = false;
     tintar(lejos, lejos.getPosition().y);
-    coches.push({ c, lejos, base, cerca: null, mis: lejos.render.meshInstances.filter((mi) => !queda.test(mi.material.name)),
-      pintura: lejos.render.meshInstances.find((mi) => mi.material.name.startsWith('pintura'))?.material });
+    const lp = lejos.getPosition();
+    const placaMis = lejos.render.meshInstances.filter((mi) => /^matricula/.test(mi.material?.name || ''));
+    const matPlaca = placaMis[0]?.material || null;
+    coches.push({
+      c, lejos, base, cerca: null, _slot: null,
+      mis: lejos.render.meshInstances.filter((mi) => !queda.test(mi.material.name)),
+      placaLejos: placaMis, matPlaca,
+      pintura: lejos.render.meshInstances.find((mi) => mi.material.name.startsWith('pintura'))?.material,
+      px: lp.x, py: lp.y, pz: lp.z,
+      esfera: new BoundingSphere(new Vec3(lp.x, lp.y + 0.75, lp.z), 5.5),
+      _tick: 0, _modoInst: 0, instanciadoVisible: false,
+    });
   }
-  // los coches de lejos, con instancias, solo con ?instancias=1 (a prueba): una llamada por malla y material, con las
-  // matrices de los coches que se ven. Medido en Malfeitos (tools/perfil.py), salen más llamadas, no menos (1.928 contra
-  // 1.771): los grupos no se recortan por la vista y van a todas las cascadas de la sombra, y sin coches quedan 1.578; los
-  // coches no son lo que más pesa allí
-  const grupos = new Map(), inst = q.get('instancias') === '1';
+
+  // ---- Pool de modelos de cerca (reutiliza clones pre-construidos por tipo: cero tirones por clone() al acercarse)
+  const poolCerca = new Map();
+  const nSombraCerca = parseInt(q.get('sombracerca') || '6', 10);
+  const sinSombraCerca = /glass|cristal|vidrio|matricula|plate|faro|light|lamp/i;
+  const volMi = (mi) => { const h = mi.aabb.halfExtents; return h.x * h.y * h.z; };
+  const crearSlot = (tipo) => {
+    const base = basePorTipo.get(tipo); if (!base) return null;
+    const e = base.clone(); app.root.addChild(e);
+    const mis_ = e.findComponents('render').flatMap((r) => r.meshInstances);
+    mis_.forEach((mi) => { mi.castShadow = false; });
+    mis_.filter((mi) => !sinSombraCerca.test(mi.material?.name || '')).sort((a_, b_) => volMi(b_) - volMi(a_)).forEach((mi, i) => { mi.castShadow = i < nSombraCerca; });
+    const prefijos = pinturaPorTipo.get(tipo) || [];
+    const paintMis = prefijos.length ? mis_.filter((mi) => prefijos.some((p) => (mi.material?.name || '').startsWith(p))) : [];
+    let plateE = null, plateMi = null;
+    const mallaPl = mallaPlacaCerca(tipo);
+    if (mallaPl) {
+      const m0 = coches.find((k) => k.c.tipo === tipo && k.matPlaca)?.matPlaca;
+      if (m0) {
+        plateMi = new MeshInstance(mallaPl, m0);
+        plateE = new Entity('placas_cerca');
+        plateE.addComponent('render', { meshInstances: [plateMi], castShadows: false, receiveShadows: true });
+        e.addChild(plateE);
+      }
+    }
+    e.enabled = false;
+    return { tipo, e, paintMis, plateE, plateMi };
+  };
+  const adquirirSlot = (tipo) => {
+    const arr = poolCerca.get(tipo);
+    while (arr?.length) {
+      const s = arr.pop();
+      if (s.e && !s.e._destroyed) return s;
+    }
+    return crearSlot(tipo);
+  };
+  const liberarSlot = (k) => {
+    const s = k._slot;
+    k._slot = null;
+    if (s && s.e && !s.e._destroyed) {
+      s.e.enabled = false;
+      let arr = poolCerca.get(s.tipo);
+      if (!arr) poolCerca.set(s.tipo, arr = []);
+      arr.push(s);
+    } else if (k.cerca && !k.cerca._destroyed) {
+      k.cerca.enabled = false;
+    }
+    k.cerca = null;
+  };
+  // (calentamiento gradual del pool: 1 clon por fotograma tras el arranque, sin tirones)
+  {
+    const cola = [];
+    const porModelo = movil ? 1 : 2;
+    for (const tipo of basePorTipo.keys()) for (let i = 0; i < porModelo; i++) cola.push(tipo);
+    const paso = () => {
+      if (!cola.length) return;
+      const tipo = cola.shift(), s = crearSlot(tipo);
+      if (s) { let arr = poolCerca.get(tipo); if (!arr) poolCerca.set(tipo, arr = []); arr.push(s); }
+      if (cola.length) requestAnimationFrame(paso);
+    };
+    requestAnimationFrame(paso);
+  }
+
+  // ---- Instancias GPU por (malla, material) con recorte por frustum por coche y división sombra (<58 m) / sin sombra (58..220 m)
+  const grupos = new Map(), inst = q.get('instancias') !== '0';
+  const sinSombraInst = /^(sombra)|glass|cristal|vidrio|faro|light|lamp/i;
   if (inst) {
-    for (const k of coches) for (const mi of k.lejos.render.meshInstances) {
-      const clave = mi.mesh.id + '/' + mi.material.id;
-      let g = grupos.get(clave);
-      if (!g) { g = { mesh: mi.mesh, material: mi.material, piezas: [] }; grupos.set(clave, g); }
-      g.piezas.push({ k, mi, queda: !k.mis.includes(mi) }); // (queda: la matrícula y la sombra, que siguen con el coche de cerca)
-      mi.visible = false;
+    for (const k of coches) {
+      for (const mi of k.lejos.render.meshInstances) {
+        const mn = mi.material?.name || '';
+        if (/^matricula/.test(mn)) continue; // (la matrícula es única por coche: se dibuja solo a <36 m)
+        const clave = mi.mesh.id + '/' + mi.material.id;
+        let g = grupos.get(clave);
+        if (!g) {
+          const esSombra = /^sombra/.test(mn);
+          g = { mesh: mi.mesh, material: mi.material, esSombra, sinSombra: esSombra || sinSombraInst.test(mn), piezas: [] };
+          grupos.set(clave, g);
+        }
+        g.piezas.push({ k, mi, m16: Float32Array.from(mi.node.getWorldTransform().data), esSombra: g.esSombra });
+        mi.visible = false;
+      }
+      k.lejos.enabled = false;
     }
-    // (las piezas que no se repiten, la matrícula y la sombra de cada coche, que son mallas suyas: sueltas como antes, y
-    // solo a menos de 40 m)
-    for (const [clave, g] of grupos) if (g.piezas.length < 2) { const s = g.piezas[0]; s.mi.visible = true; (s.k.solas ||= []).push(s); grupos.delete(clave); }
-    const raiz = new Entity('coches_instancias'); app.root.addChild(raiz);
+    const raizInst = new Entity('coches_instancias'); app.root.addChild(raizInst);
     const formato = VertexFormat.getDefaultInstancingFormat(app.graphicsDevice);
+    const hacerCapa = (g, castShadow, receiveShadow) => {
+      const cap = g.piezas.length;
+      const datos = new Float32Array(16 * cap);
+      const vb = new VertexBuffer(app.graphicsDevice, formato, cap, { usage: BUFFER_DYNAMIC, data: datos });
+      const mi = new MeshInstance(g.mesh, g.material);
+      mi.setInstancing(vb); mi.cull = false; mi.castShadow = castShadow; mi.receiveShadow = receiveShadow;
+      const e = new Entity(castShadow ? 'inst_s' : 'inst_l');
+      e.addComponent('render', { meshInstances: [mi], castShadows: castShadow, receiveShadows: receiveShadow });
+      e.enabled = false; raizInst.addChild(e);
+      return { datos, vb, mi, e, n: 0 };
+    };
     for (const g of grupos.values()) {
-      g.datos = new Float32Array(16 * g.piezas.length);
-      g.vb = new VertexBuffer(app.graphicsDevice, formato, g.piezas.length, { usage: BUFFER_DYNAMIC, data: g.datos });
-      g.mi = new MeshInstance(g.mesh, g.material); g.mi.setInstancing(g.vb); g.mi.cull = false; g.mi.castShadow = true; g.mi.receiveShadow = true;
-      const e = new Entity('inst'); e.addComponent('render', { meshInstances: [g.mi], castShadows: true, receiveShadows: true }); raiz.addChild(e);
+      if (g.sinSombra) {
+        g.lejos = hacerCapa(g, false, !g.esSombra);
+        g.cerca = null;
+      } else {
+        g.cerca = hacerCapa(g, true, true);
+        g.lejos = hacerCapa(g, false, false);
+      }
     }
   }
+  let tick = 0;
   const llenar = () => {
     for (const g of grupos.values()) {
-      let i = 0;
-      for (const { k, mi, queda } of g.piezas) {
-        if (!k.lejos.enabled || (k.cerca?.enabled && !queda)) continue;
-        g.datos.set(mi.node.getWorldTransform().data, 16 * i++);
+      const piezas = g.piezas;
+      if (g.cerca) {
+        let nc = 0, nl = 0;
+        const dc = g.cerca.datos, dl = g.lejos.datos;
+        for (let i = 0; i < piezas.length; i++) {
+          const p = piezas[i], k = p.k;
+          if (k._tick !== tick || k._modoInst === 0) continue;
+          if (k._movido) p.m16.set(p.mi.node.getWorldTransform().data);
+          if (k._modoInst === 1) { dc.set(p.m16, 16 * nc); nc++; }
+          else if (k._modoInst === 2) { dl.set(p.m16, 16 * nl); nl++; }
+        }
+        g.cerca.n = nc; g.cerca.e.enabled = nc > 0;
+        if (nc > 0) { g.cerca.vb.setData(dc); g.cerca.mi.instancingCount = nc; }
+        g.lejos.n = nl; g.lejos.e.enabled = nl > 0;
+        if (nl > 0) { g.lejos.vb.setData(dl); g.lejos.mi.instancingCount = nl; }
+      } else {
+        let nl = 0;
+        const dl = g.lejos.datos, esSombra = g.esSombra;
+        for (let i = 0; i < piezas.length; i++) {
+          const p = piezas[i], k = p.k;
+          if (k._tick !== tick) continue;
+          // (la sombra de contacto del suelo se dibuja también bajo el coche de cerca y hasta 100 m)
+          if (esSombra) { if (k._modoSombra === 0) continue; }
+          else if (k._modoInst === 0) continue;
+          if (k._movido) p.m16.set(p.mi.node.getWorldTransform().data);
+          dl.set(p.m16, 16 * nl); nl++;
+        }
+        g.lejos.n = nl; g.lejos.e.enabled = nl > 0;
+        if (nl > 0) { g.lejos.vb.setData(dl); g.lejos.mi.instancingCount = nl; }
       }
-      g.vb.setData(g.datos); g.mi.instancingCount = i;
     }
+    for (let i = 0; i < coches.length; i++) coches[i]._movido = false;
   };
+
   const poner = (k, sí) => {
-    if (sí && !k.cerca) {
-      // (la copia de su modelo, en el mismo sitio que el de lejos y con su pintura)
-      k.cerca = k.base.clone(); app.root.addChild(k.cerca);
-      // (solo las ?sombracerca=6 piezas más grandes dan sombra: la carrocería y las ruedas. Los modelos de cerca traen
-      // hasta 52 materiales, y cada pieza era una llamada más en cada cascada de la sombra; los faros, insignias y
-      // embellecedores no dan una sombra que se vea)
-      const mis_ = k.cerca.findComponents('render').flatMap((r) => r.meshInstances);
-      const vol_ = (mi) => { const h = mi.aabb.halfExtents; return h.x * h.y * h.z; };
-      const n_ = parseInt(q.get('sombracerca') || '6', 10);
-      // (y nunca el cristal, la matrícula ni los faros: el cristal salía entre las seis más grandes)
-      const sinSombra_ = /glass|cristal|vidrio|matricula|plate|faro|light|lamp/i;
-      mis_.forEach((mi) => { mi.castShadow = false; });
-      mis_.filter((mi) => !sinSombra_.test(mi.material?.name || '')).sort((a_, b_) => vol_(b_) - vol_(a_)).forEach((mi, i) => { mi.castShadow = i < n_; });
-      k.cerca.setPosition(k.lejos.getPosition()); k.cerca.setRotation(k.lejos.getRotation()); k.cerca.setLocalScale(k.lejos.getWorldTransform().getScale());
-      const pl = placasDe(k); if (pl) { k.cerca.addChild(pl); k.placaLejos = k.lejos.render.meshInstances.filter((mi) => /^matricula/.test(mi.material?.name || '')); }
-      if (k.pintura) for (const r of k.cerca.findComponents('render')) for (const mi of r.meshInstances) if (k.c.pintura.some((p) => mi.material.name.startsWith(p))) mi.material = k.pintura;
+    if (sí) {
+      if (!k._slot) {
+        const s = adquirirSlot(k.c.tipo);
+        if (!s) return;
+        k._slot = s; k.cerca = s.e;
+        s.e.setPosition(k.lejos.getPosition());
+        s.e.setRotation(k.lejos.getRotation());
+        s.e.setLocalScale(k.lejos.getWorldTransform().getScale());
+        if (k.pintura) for (let i = 0; i < s.paintMis.length; i++) s.paintMis[i].material = k.pintura;
+        if (s.plateE && s.plateMi) {
+          if (k.matPlaca) { s.plateMi.material = k.matPlaca; s.plateE.enabled = true; }
+          else s.plateE.enabled = false;
+        }
+        s.e.enabled = true;
+      } else if (k.cerca && !k.cerca.enabled) {
+        k.cerca.enabled = true;
+      }
+    } else if (k._slot || k.cerca) {
+      liberarSlot(k);
     }
-    if (k.cerca) k.cerca.enabled = sí;
-    if (!inst) for (const mi of k.mis) mi.visible = !sí;
-    if (k.placaLejos) for (const mi of k.placaLejos) mi.visible = !sí;
+    if (!inst) {
+      for (let i = 0; i < k.mis.length; i++) k.mis[i].visible = !sí;
+      if (k.placaLejos) for (let i = 0; i < k.placaLejos.length; i++) k.placaLejos[i].visible = !sí;
+    }
   };
-  let n = 0;
+
+  const dist2 = dist * dist, distFuera2 = distFuera * distFuera, tope2 = tope * tope;
+  const sombraTope2 = sombraTope * sombraTope, placaTope2 = placaTope * placaTope, sombraSuelo2 = 100 * 100;
+  const topK = [];
+  let n = 0, ultPx = 1e9, ultPz = 1e9, ultFx = 0, ultFz = 0, ultLen = -1;
   app.on('update', () => {
-    if (n++ & 7) return;
-    const p = camara.getPosition();
-    const orden = coches.map((k) => [k, k.lejos.getPosition().distance(p)]).sort((x, y) => x[1] - y[1]);
-    orden.forEach(([k, d], i) => {
-      if (k.conducido) return; // (el que se está conduciendo: src/conducir.js)
-      if (k.obra) { if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope; return; }   // (un contenedor de obra, src/obras.js: solo se apaga de lejos)
-      poner(k, d < dist && i < maxCerca); if (k.lejos.enabled !== d < tope) k.lejos.enabled = d < tope;
-      if (k.solas) for (const s of k.solas) s.mi.visible = d < 40 && !(k.cerca?.enabled && !s.queda);
-    });
+    const p = camara.getPosition(), fwd = camara.forward;
+    const movCam = (p.x - ultPx) * (p.x - ultPx) + (p.z - ultPz) * (p.z - ultPz) > 0.25;
+    const giroCam = fwd.x * ultFx + fwd.z * ultFz < 0.9993; // (~2 grados)
+    const cambioLista = coches.length !== ultLen;
+    const tocaLlenar = (n & 3) === 0 || movCam || giroCam || cambioLista;
+    n++;
+    if (!tocaLlenar) return;
+    ultPx = p.x; ultPz = p.z; ultFx = fwd.x; ultFz = fwd.z; ultLen = coches.length;
+    const frustum = camara.camera?.frustum;
+    tick++;
+    topK.length = 0;
+
+    // 1) Paso O(N) sin asignaciones: actualizar posiciones movidas, seleccionar candidatos cercanos y estados
+    for (let i = 0; i < coches.length; i++) {
+      const k = coches[i];
+      if (k.conducido) {
+        if (k._slot || k.cerca) liberarSlot(k);
+        k._tick = tick; k._modoInst = 0; k._modoSombra = 0; k.instanciadoVisible = false;
+        continue;
+      }
+      if (k.obra) {
+        const lp = k.lejos.getPosition();
+        const dx = lp.x - p.x, dz = lp.z - p.z, d2 = dx * dx + dz * dz;
+        const vis = d2 < tope2;
+        if (k.lejos.enabled !== vis) k.lejos.enabled = vis;
+        continue;
+      }
+      // (si el coche se aparcó en otro sitio tras conducirlo, refrescar sus coordenadas y matriz)
+      const lp = k.lejos.getPosition();
+      if (Math.abs(lp.x - k.px) > 0.02 || Math.abs(lp.z - k.pz) > 0.02 || Math.abs(lp.y - k.py) > 0.02) {
+        k.px = lp.x; k.py = lp.y; k.pz = lp.z;
+        k.esfera.center.set(lp.x, lp.y + 0.75, lp.z);
+        k._movido = true;
+      }
+      const dx = k.px - p.x, dz = k.pz - p.z, d2 = dx * dx + dz * dz;
+      k._d2 = d2; k._tick = tick;
+      if (d2 >= tope2) {
+        if (k._slot || k.cerca) liberarSlot(k);
+        if (k.lejos.enabled) k.lejos.enabled = false;
+        k._modoInst = 0; k._modoSombra = 0; k.instanciadoVisible = false;
+        continue;
+      }
+      // Candidato a coche de cerca (con histéresis dist / distFuera)
+      const limCerca2 = k._slot ? distFuera2 : dist2;
+      if (d2 < limCerca2) {
+        // Inserción ordenada en topK (tamaño <= maxCerca)
+        if (topK.length < maxCerca) {
+          topK.push(k);
+          let j = topK.length - 1;
+          while (j > 0 && topK[j - 1]._d2 > topK[j]._d2) { const tmp = topK[j - 1]; topK[j - 1] = topK[j]; topK[j] = tmp; j--; }
+        } else if (d2 < topK[maxCerca - 1]._d2) {
+          topK[maxCerca - 1] = k;
+          let j = maxCerca - 1;
+          while (j > 0 && topK[j - 1]._d2 > topK[j]._d2) { const tmp = topK[j - 1]; topK[j - 1] = topK[j]; topK[j] = tmp; j--; }
+        }
+      }
+      k._quiereCerca = false;
+    }
+    for (let i = 0; i < topK.length; i++) topK[i]._quiereCerca = true;
+
+    // 2) Aplicar LOD cerca / instanciado con frustum culling y división sombra/lejos
+    for (let i = 0; i < coches.length; i++) {
+      const k = coches[i];
+      if (k.conducido || k.obra || k._tick !== tick) continue;
+      const d2 = k._d2;
+      if (d2 >= tope2) continue;
+      if (k._quiereCerca) {
+        poner(k, true);
+        if (inst) {
+          if (k.lejos.enabled) k.lejos.enabled = false;
+          k._modoInst = 0;
+          k._modoSombra = 1; // (la sombra de contacto del suelo sigue dibujándose en el lote instanciado)
+          k.instanciadoVisible = false;
+        } else {
+          if (!k.lejos.enabled) k.lejos.enabled = true;
+        }
+      } else {
+        if (k._slot || k.cerca) poner(k, false);
+        if (inst) {
+          // Recorte por frustum con margen generoso (esfera de 5,5 m); los muy cercanos (<18 m) siempre entran por sombra propia
+          const enVista = d2 < 324 || !frustum || frustum.containsSphere(k.esfera) > 0;
+          if (enVista) {
+            k._modoInst = d2 < sombraTope2 ? 1 : 2;
+            k._modoSombra = d2 < sombraSuelo2 ? 1 : 0;
+            k.instanciadoVisible = true;
+          } else {
+            k._modoInst = 0;
+            k._modoSombra = 0;
+            k.instanciadoVisible = false;
+          }
+          // Matrícula individual solo si está cerca (<36 m) y en vista
+          const verPlaca = enVista && d2 < placaTope2 && k.placaLejos.length > 0;
+          if (k.lejos.enabled !== verPlaca) k.lejos.enabled = verPlaca;
+        } else {
+          const en = d2 < tope2;
+          if (k.lejos.enabled !== en) k.lejos.enabled = en;
+          const cs = d2 < sombraTope2;
+          if (k._cs !== cs) { k._cs = cs; for (let j = 0; j < k.mis.length; j++) k.mis[j].castShadow = cs; }
+        }
+      }
+    }
     if (inst) llenar();
   });
-  // (para la entrada, src/desde388.js: los modelos de cerca, todos un momento en la escena junto a «p», para que la
-  // gráfica prepare sus materiales antes de que se vea nada; devuelve con qué quitarlos)
-  // (con la pintura de un coche de su modelo, que es como salen de cerca: sin ella, la gráfica aún preparaba cosas al
-  // aparecer el primero de cada modelo)
   const calentar = (p) => {
     const antes = [];
     for (const n of new Set(coches.map((k) => k.c.tipo))) {
@@ -545,5 +754,5 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
     modelos.setPosition(p.x, p.y, p.z); modelos.enabled = true; app.root.addChild(modelos);
     return () => { app.root.removeChild(modelos); for (const [mi, m] of antes) mi.material = m; };
   };
-  return { coches, calentar, placas: placasDe, cerca: () => coches.filter((k) => k.cerca?.enabled).map((k) => k.c.nodo), grupos: () => grupos.size };
+  return { coches, calentar, placas: placasDe, cerca: () => coches.filter((k) => k.cerca?.enabled).map((k) => k.c.nodo), grupos: () => grupos.size, tope };
 }

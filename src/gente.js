@@ -536,6 +536,20 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
   // ---- cada fotograma
   const qa = new Quat(), tmp = [0, 0];
   let reloj_ = 0, cuentaAltura = 0, cuentaGente = 0;
+  // (rejilla espacial de 16 m para rodear coches aparcados sin recorrer los 1.248 coches por cada vecino cada fotograma)
+  const carGrid = new Map();
+  let carGridT = -1e9, carGridN = -1;
+  const refrescarCarGrid = (tt) => {
+    const lista = window.foto?.coches?.coches;
+    if (!lista || (lista.length === carGridN && tt - carGridT < 3)) return;
+    carGridT = tt; carGridN = lista.length; carGrid.clear();
+    for (let i = 0; i < lista.length; i++) {
+      const k = lista[i], c = k.caja; if (!c) continue;
+      const gx = Math.floor(c.x / 16), gz = Math.floor(c.z / 16), cl = gx * 65536 + gz;
+      let arr = carGrid.get(cl); if (!arr) carGrid.set(cl, arr = []);
+      arr.push(k);
+    }
+  };
   const salirDeMisa = (v) => {
     // al acabar la misa, se levantan y salen (los que están a la vista, despacio; los demás, se van sin más)
     if (!sitiosIglesia) return morir(v);
@@ -593,6 +607,7 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
     }
 
     // (cada uno mira y se aparta de la persona que tiene más cerca; el que acompaña a alguien, a esa)
+    refrescarCarGrid(tt);
     for (const v of gente) {
       const q_ = !otros.length ? p : v.sigueA ? (otros.find((o) => o.id === v.sigueA) || p) : (v.estado === 'seguir' || v.fin?.tipo === 'seguir') ? p : personaCerca(v.x, v.z, p);
       actualizar(v, dt, tt, q_, q_ === p ? conduce : null);
@@ -655,11 +670,17 @@ export async function montarGente({ app, vida, carpeta, glb, camara, chica, relo
       if (adel > 0 && adel < (conduce ? 9 : 2.2) && Math.abs(lado_) < (conduce ? 2.2 : 0.75)) { lat = lado_ > 0 ? -1 : 1; if (!conduce && adel < 0.8) para = true; }
       // (un coche aparcado delante, en su camino: se le rodea por el lado que le queda más lejos del coche, más despacio)
       let frena = false;
-      for (const k of window.foto?.coches?.coches || []) {
-        const c = k.caja; if (!c || k.conducido || Math.abs(c.x - v.x) > 6 || Math.abs(c.z - v.z) > 6) continue;
-        for (const ad of [0.8, 1.6]) {
-          const px = v.x + dx * ad, pz = v.z + dz * ad, rx = px - c.x, rz = pz - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx;
-          if (Math.abs(lx) < c.L / 2 + 0.35 && Math.abs(lz) < c.W / 2 + 0.35) { const la = (c.x - v.x) * dz - (c.z - v.z) * dx; lat = la > 0 ? -1 : 1; frena = true; break; }
+      const gx0 = Math.floor((v.x - 6) / 16), gx1 = Math.floor((v.x + 6) / 16);
+      const gz0 = Math.floor((v.z - 6) / 16), gz1 = Math.floor((v.z + 6) / 16);
+      for (let gx = gx0; gx <= gx1 && !frena; gx++) for (let gz = gz0; gz <= gz1 && !frena; gz++) {
+        const cel = carGrid.get(gx * 65536 + gz); if (!cel) continue;
+        for (let ci = 0; ci < cel.length; ci++) {
+          const k = cel[ci], c = k.caja; if (!c || k.conducido || Math.abs(c.x - v.x) > 6 || Math.abs(c.z - v.z) > 6) continue;
+          for (const ad of [0.8, 1.6]) {
+            const px = v.x + dx * ad, pz = v.z + dz * ad, rx = px - c.x, rz = pz - c.z, lx = rx * c.dx + rz * c.dz, lz = -rx * c.dz + rz * c.dx;
+            if (Math.abs(lx) < c.L / 2 + 0.35 && Math.abs(lz) < c.W / 2 + 0.35) { const la = (c.x - v.x) * dz - (c.z - v.z) * dx; lat = la > 0 ? -1 : 1; frena = true; break; }
+          }
+          if (frena) break;
         }
       }
       for (const o of gente) {

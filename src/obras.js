@@ -111,18 +111,18 @@ function contenedor(app, n, r) {
   const ladrillo = new StandardMaterial(); ladrillo.diffuse = new Color(0.62, 0.3, 0.2); ladrillo.gloss = 0.1; ladrillo.update();
   const tubo = new StandardMaterial(); tubo.diffuse = new Color(0.85, 0.45, 0.2); tubo.gloss = 0.4; tubo.update();   // (el naranja de los tubos de desagüe)
   const e = new Entity('chapa'); e.addComponent('render', { meshInstances: [new MeshInstance(mallaCaja(d), chapa)], castShadows: true }); raiz.addChild(e);
-  // (los refuerzos verticales de los costados, el tubo del borde de arriba, los patines de abajo y los ganchos)
-  for (const z of [0.835, -0.835]) for (const x of [-1.05, -0.35, 0.35, 1.05]) caja(raiz, chapaLisa, 0.09, 1.05, 0.04, x, 0.63, z);
-  for (const z of [0.82, -0.82]) caja(raiz, chapaLisa, 3.66, 0.07, 0.07, 0, 1.2, z);
-  for (const x of [1.8, -1.8]) caja(raiz, chapaLisa, 0.07, 0.07, 1.7, x, 1.2, 0);
-  for (const z of [0.55, -0.55]) caja(raiz, hierro, 3.1, 0.1, 0.12, 0, 0.05, z);
-  for (const x of [1.62, -1.62]) for (const z of [0.6, -0.6]) caja(raiz, hierro, 0.08, 0.16, 0.05, x, 0.85, z, 0, 0, x > 0 ? -16 : 16);
+  // (los refuerzos verticales de los costados, el tubo del borde de arriba, los patines de abajo y los ganchos; solo la caja y el escombro dan sombra para ahorrar ~25 llamadas de sombra por contenedor)
+  for (const z of [0.835, -0.835]) for (const x of [-1.05, -0.35, 0.35, 1.05]) caja(raiz, chapaLisa, 0.09, 1.05, 0.04, x, 0.63, z, 0, 0, 0, false);
+  for (const z of [0.82, -0.82]) caja(raiz, chapaLisa, 3.66, 0.07, 0.07, 0, 1.2, z, 0, 0, 0, false);
+  for (const x of [1.8, -1.8]) caja(raiz, chapaLisa, 0.07, 0.07, 1.7, x, 1.2, 0, 0, 0, 0, false);
+  for (const z of [0.55, -0.55]) caja(raiz, hierro, 3.1, 0.1, 0.12, 0, 0.05, z, 0, 0, 0, false);
+  for (const x of [1.62, -1.62]) for (const z of [0.6, -0.6]) caja(raiz, hierro, 0.08, 0.16, 0.05, x, 0.85, z, 0, 0, x > 0 ? -16 : 16, false);
   const m = new Entity('escombro'); m.addComponent('render', { meshInstances: [new MeshInstance(mallaEscombro(d, r), esc)], castShadows: true }); raiz.addChild(m);
   // (lo que asoma: tablas, un tubo, ladrillos y unos cascotes grandes)
-  for (let i = 0; i < 3; i++) caja(raiz, madera, 1.4 + r() * 0.8, 0.03, 0.16, (r() - 0.5) * 1.6, 1.25 + r() * 0.15, (r() - 0.5) * 0.9, (r() - 0.5) * 20, r() * 180, 8 + r() * 22);
-  const t = new Entity('tubo'); t.addComponent('render', { type: 'cylinder', material: tubo, castShadows: true }); t.setLocalScale(0.1, 1.5, 0.1); t.setLocalPosition((r() - 0.5) * 1.2, 1.38, (r() - 0.5) * 0.6); t.setLocalEulerAngles(80, r() * 180, 0); raiz.addChild(t);
-  for (let i = 0; i < 6; i++) caja(raiz, ladrillo, 0.24, 0.07, 0.115, (r() - 0.5) * 2.6, 1.3 + r() * 0.12, (r() - 0.5) * 1.1, r() * 30, r() * 180, r() * 25);
-  for (let i = 0; i < 7; i++) { const s = 0.12 + r() * 0.2; caja(raiz, esc, s, s * 0.6, s * 0.8, (r() - 0.5) * 2.8, 1.25 + r() * 0.15, (r() - 0.5) * 1.2, r() * 40, r() * 180, r() * 40); }
+  for (let i = 0; i < 3; i++) caja(raiz, madera, 1.4 + r() * 0.8, 0.03, 0.16, (r() - 0.5) * 1.6, 1.25 + r() * 0.15, (r() - 0.5) * 0.9, (r() - 0.5) * 20, r() * 180, 8 + r() * 22, false);
+  const t = new Entity('tubo'); t.addComponent('render', { type: 'cylinder', material: tubo, castShadows: false }); t.setLocalScale(0.1, 1.5, 0.1); t.setLocalPosition((r() - 0.5) * 1.2, 1.38, (r() - 0.5) * 0.6); t.setLocalEulerAngles(80, r() * 180, 0); raiz.addChild(t);
+  for (let i = 0; i < 6; i++) caja(raiz, ladrillo, 0.24, 0.07, 0.115, (r() - 0.5) * 2.6, 1.3 + r() * 0.12, (r() - 0.5) * 1.1, r() * 30, r() * 180, r() * 25, false);
+  for (let i = 0; i < 7; i++) { const s = 0.12 + r() * 0.2; caja(raiz, esc, s, s * 0.6, s * 0.8, (r() - 0.5) * 2.8, 1.25 + r() * 0.15, (r() - 0.5) * 1.2, r() * 40, r() * 180, r() * 40, false); }
   return raiz;
 }
 

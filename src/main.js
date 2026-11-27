@@ -96,7 +96,12 @@ MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guaren
   iglesiaBancos: './escenas/guarena/iglesia_bancos.json', // (sus bancos de forja, para sentarse: abajo)
   dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260, nombre: 'la iglesia de Santa María', // (el interior de la iglesia, aparte: se carga al acercarse)
     canto: './escenas/guarena/canto_iglesia.m4a', planta: './escenas/guarena/iglesia_planta.json' }, // (y el canto gregoriano, que suena solo dentro: src/canto.js)
-  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [850000, 1150000], radio: [140, 190], sueltaExtra: 40, // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras y radio acotado; más allá se ve lejos.glb)
+  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'],
+  caras: [900000, 1450000], radio: [150, 240], sueltaExtra: 50,
+  // (fluidez 60 fps sostenidos en Guareña: la escena ya trae oclusión ambiental horneada en Blender y MSAA 4× con
+  // alphaToCoverage en rejas/señales/pelo; sin TAA ni SSAO se elimina el pre-pase de profundidad de ~420 llamadas y ~20 ms
+  // de GPU manteniendo nitidez nativa en escritorio Retina y dentro del coche. ?taa=1, ?ao=0.3 y ?sres=4096 lo restauran)
+  taa: '0', ao: 0, sres: 2048, sdist: 65,
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json', // (las cuestas de verdad, al dibujar: src/relieve.js)
   gente: './escenas/guarena/gente/', iglesiaSitios: './escenas/guarena/iglesia_sitios.json', // (los vecinos por la calle según la hora: src/gente.js)
@@ -282,24 +287,45 @@ const iZ = (fin) => (escena.partes || []).findIndex((p) => p.endsWith(fin));
 const ZC = modelo && escena.zonas && iZ('/materiales.glb') >= 0 ? (() => {
   const radioDef = Array.isArray(escena.radio) ? escena.radio[movil ? 0 : 1] : (movil ? 160 : 330);
   const radio = parseFloat(q.get('radio') || String(radioDef)), suelta = radio + (escena.sueltaExtra || 80), todas = q.get('zonas') === '0';
-  // (al empezar, solo las zonas de alrededor de la salida: las de más allá se ven de lejos con lejos.glb y llegan luego, de
-  // una en una. Con todas las del radio había que bajar 60 MB de zonas antes del primer fotograma; con estas, unos 24.
-  // ?radio0= lo cambia; ?radio0=0, como antes)
-  const radio0 = parseFloat(q.get('radio0') ?? '100') || radio;
+  // (al empezar, solo las zonas de alrededor de la salida; en escritorio 140 m para ver la calle completa desde el primer
+  // fotograma sin esperar a los 32 cuadros siguientes; ?radio0= lo cambia, ?radio0=0 carga todo el radio)
+  const radio0 = parseFloat(q.get('radio0') ?? (movil ? '100' : '140')) || radio;
   const tope = parseFloat(q.get('caras') || (escena.caras ? escena.caras[movil ? 0 : 1] : 0)); // (caras de zona cargadas a la vez, como mucho: [móvil, ordenador])
   const dist = (z, p) => { const [x0, z0, x1, z1] = z.caja; return Math.hypot(Math.max(0, x0 - p.x, p.x - x1), Math.max(0, z0 - p.z, p.z - z1)); };
+  // (prioridad direccional: las zonas delante de la cámara —a lo largo de una calle larga o conduciendo— cuentan hasta 65 m
+  // más cerca para entrar antes dentro del presupuesto de caras y precargarse sin aparecer tarde)
+  const prio = (z, p, fwd) => {
+    const d = dist(z, p);
+    if (!fwd) return d;
+    const cx = (z.caja[0] + z.caja[2]) * 0.5 - p.x, cz = (z.caja[1] + z.caja[3]) * 0.5 - p.z;
+    const L = Math.hypot(cx, cz) || 1, dot = (cx * fwd.x + cz * fwd.z) / L;
+    return d - Math.max(-0.25, Math.min(1, dot)) * 65;
+  };
   // (hasta dónde se carga: el radio, o menos si las zonas de alrededor pesan más que el tope de caras de la escena.
-  // En el centro del pueblo una zona pesa cinco veces lo que una de Malfeitos, y con el radio solo se iba la memoria)
-  const hasta = (Z, p, inicial) => {
+  // Con prioridad direccional, nunca se recorta una zona que está justo delante por haber cargado demasiadas detrás)
+  const hasta = (Z, p, inicial, fwd = null) => {
     let r = inicial ? Math.min(radio, radio0) : radio;
     if (tope && !todas) {
-      let suma = 0;
-      for (const z of Z.zonas.filter((z) => dist(z, p) < r).sort((a, b) => dist(a, p) - dist(b, p))) { suma += z.caras; if (suma > tope && suma > z.caras) { r = dist(z, p); break; } }
+      const elegidas = new Set(); let suma = 0;
+      const cand = Z.zonas.filter((z) => dist(z, p) < r).sort((a, b) => prio(a, p, fwd) - prio(b, p, fwd));
+      for (const z of cand) {
+        if (suma + z.caras > tope && suma > 0) continue;
+        suma += z.caras; elegidas.add(z.clave);
+      }
+      return { r, elegidas };
     }
-    return r;
+    return { r, elegidas: null };
+  };
+  const prefBlob = new Map();
+  const precargarRed = (z) => {
+    if (prefBlob.has(z.clave) || ya.has(z.clave)) return;
+    const p = bajarGlb(glb(escena.zonas.slice(0, escena.zonas.lastIndexOf('/') + 1) + z.archivo));
+    p.catch(() => prefBlob.delete(z.clave));
+    prefBlob.set(z.clave, p);
   };
   const traer = async (z) => {
-    const url = await bajarGlb(glb(escena.zonas.slice(0, escena.zonas.lastIndexOf('/') + 1) + z.archivo)); // (junto a su zonas.json: antes iba fija la carpeta de malfeitos_gris y el pueblo entero cargaba las casas de la otra escena)
+    const p = prefBlob.get(z.clave); prefBlob.delete(z.clave);
+    const url = await (p || bajarGlb(glb(escena.zonas.slice(0, escena.zonas.lastIndexOf('/') + 1) + z.archivo))); // (junto a su zonas.json: antes iba fija la carpeta de malfeitos_gris y el pueblo entero cargaba las casas de la otra escena)
     const asset = new Asset('zona_' + z.clave, 'container', { url, filename: `zona_${z.clave}.glb` });
     app.assets.add(asset);
     await new Promise((ok, mal) => { asset.ready(ok); asset.once('error', mal); app.assets.load(asset); });
@@ -308,8 +334,8 @@ const ZC = modelo && escena.zonas && iZ('/materiales.glb') >= 0 ? (() => {
   };
   const Zp = fetch(escena.zonas).then((r) => r.json()), ya = new Map(); // (ya: clave → la zona de la salida, ya pedida)
   const [ix, , iz] = escena.inicio || [0, 0, 0];
-  Zp.then((Z) => { const p = { x: ix, z: iz }, r = hasta(Z, p, true); for (const z of Z.zonas) if (todas || dist(z, p) < r) { const t = traer(z); t.catch(() => {}); ya.set(z.clave, t); } }).catch(() => {});
-  return { radio, suelta, todas, dist, hasta, traer, Zp, ya, inicio: { x: ix, z: iz } };
+  Zp.then((Z) => { const p = { x: ix, z: iz }, { r, elegidas } = hasta(Z, p, true); for (const z of Z.zonas) if (todas || (elegidas ? elegidas.has(z.clave) : dist(z, p) < r)) { const t = traer(z); t.catch(() => {}); ya.set(z.clave, t); } }).catch(() => {});
+  return { radio, suelta, todas, dist, prio, hasta, traer, precargarRed, Zp, ya, inicio: { x: ix, z: iz } };
 })() : null;
 // (y lo grande, cada uno en cuanto llega)
 const A = {}, cargas = [];
@@ -380,8 +406,9 @@ if (acabadoFoto) {
   // (rendimiento: 2 cascadas hasta 70 m —hasta el 7-11-2026, 90: con todas las calles, Malfeitos pasaba de 1.395 a 1.233
   // llamadas de dibujo y a esa distancia la sombra apenas se ve; ?sdist=90 para comparar—. Con 4 hasta 120, la calle se dibujaba una vez más para la sombra; de 3 a 2, medido
   // con tools/variantes.py, la imagen cambia menos que entre dos capturas iguales seguidas y caen 270 llamadas de dibujo)
-  Object.assign(sol.light, { numCascades: parseInt(q.get('cascadas') || '2'), cascadeDistribution: 0.65, shadowDistance: parseFloat(q.get('sdist') || '70'),
-    shadowResolution: parseInt(q.get('sres') || '4096'), shadowType: q.get('pcf') === '3' ? SHADOW_PCF3_32F : SHADOW_PCF1_32F, shadowIntensity: 1, shadowBias: parseFloat(q.get('sesgo') || '0.15'), normalOffsetBias: parseFloat(q.get('sesgon') || '0.1') }); // (0,1: con las paredes onduladas, a 0,03 la sombra de las cornisas salía en diente de sierra)
+  const sdistDef = String(escena.sdist ?? 70), sresDef = String(escena.sres ?? 4096);
+  Object.assign(sol.light, { numCascades: parseInt(q.get('cascadas') || '2'), cascadeDistribution: 0.65, shadowDistance: parseFloat(q.get('sdist') || sdistDef),
+    shadowResolution: parseInt(q.get('sres') || sresDef), shadowType: q.get('pcf') === '3' ? SHADOW_PCF3_32F : SHADOW_PCF1_32F, shadowIntensity: 1, shadowBias: parseFloat(q.get('sesgo') || '0.15'), normalOffsetBias: parseFloat(q.get('sesgon') || '0.1') }); // (0,1: con las paredes onduladas, a 0,03 la sombra de las cornisas salía en diente de sierra)
   // (PCF1: con PCF3 este modelo se queda sin sombra en WebGPU, comprobado el 27-10-2026; ?pcf=3 para probarlo)
   const sc = (q.get('solc') || escena.solc || '1,0.88,0.70').split(',').map(Number); // (?solc=r,g,b)
   sol.light.color = new Color(sc[0], sc[1], sc[2]); // (el sol del vídeo: dorado, de verano en el sur)
@@ -434,11 +461,12 @@ if (q.get('post') !== '0') {
     // (a resolución completa en el ordenador: a media, el interior de los coches que se ve por las lunas salía lleno de
     // manchas a cuadros —el cristal no está en la profundidad con la que se calcula—; el usuario, 15-11-2026: «el coche
     // se ve pixelado». Cuesta 1,2 ms en la plaza llena; si no llega, la calidad adaptable la baja. En el móvil, a media)
+    const aoVal = parseFloat(q.get('ao') ?? String(escena.ao ?? 0.6));
     post.ssao.scale = AO_ESCALA;
-    post.ssao.type = 'combine'; post.ssao.intensity = parseFloat(q.get('ao') || escena.ao || '0.6'); post.ssao.radius = parseFloat(q.get('aoradio') || '8'); post.ssao.samples = 16; post.ssao.power = 4; // (con un radio grande oscurecía fachadas enteras como si estuvieran a la sombra: radio corto, solo rincones y juntas)
+    post.ssao.type = aoVal > 0 ? 'combine' : 'none'; post.ssao.intensity = aoVal; post.ssao.radius = parseFloat(q.get('aoradio') || '8'); post.ssao.samples = 16; post.ssao.power = 4; // (con un radio grande oscurecía fachadas enteras como si estuvieran a la sombra: radio corto, solo rincones y juntas)
     post.bloom.intensity = 0.02; post.bloom.threshold = 0.8; post.vignette.intensity = 0.25;
     if (q.get('brillo') === '0') post.bloom.enabled = false; // (?brillo=0, sin el bloom: para medir lo que cuesta y lo que se ve)
-    if (q.get('ao') === '0') post.ssao.type = 'none';
+    if (aoVal <= 0) post.ssao.type = 'none';
     app.scene.exposure = parseFloat(q.get('exposicion') || escena.exposicion || '1.12');
     if (escena.zona_luz && (q.get('expozona') || escena.expozona) === '1') {  // (la exposición por zonas: ver la escena)
       const zl = escena.zona_luz, eje = zl.eje, ex0 = app.scene.exposure, ao0 = post.ssao.intensity;
@@ -607,9 +635,11 @@ if (A.modelo) {
   if (A.objetos) {
     const obj = A.objetos.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
     raiz.addChild(obj);
-    // (fase 4: los detalles y las imperfecciones van en tramos de 25 m; los que quedan a más de ?lejos=40 m de la cámara
-    // no se dibujan: son cosas de centímetros que de lejos no se ven)
-    const lejos = parseFloat(q.get('lejos') || '40'), tramos = obj.findComponents('render').filter((r) => /^(detalles|imperfecciones)_-?\d+$/.test(r.entity.name));
+    // (los detalles e imperfecciones en tramos de 25 m: visibles mucho antes —110 m en escritorio / 75 m en móvil— con
+    // histéresis de 10 m y sin proyectar sombra más allá de 55 m para no sumar llamadas en cascadas lejanas)
+    const lejos = parseFloat(q.get('lejos_obj') || q.get('lejos') || (movil ? '75' : '110'));
+    const lejosFuera = lejos + 10, sombraObj = 55;
+    const tramos = obj.findComponents('render').filter((r) => /^(detalles|imperfecciones)_-?\d+$/.test(r.entity.name));
     let cuenta = 0;
     app.on('update', () => {
       if ((cuenta++ & 7) || !lejos) return;
@@ -617,7 +647,13 @@ if (A.modelo) {
       for (const r of tramos) { // (la distancia de la cámara a la caja del tramo, no a su centro)
         const b = r.meshInstances[0]?.aabb; if (!b) continue;
         const d = (k) => Math.max(0, Math.abs(c[k] - b.center[k]) - b.halfExtents[k]);
-        r.enabled = Math.hypot(d('x'), d('y'), d('z')) < lejos;
+        const distT = Math.hypot(d('x'), d('y'), d('z'));
+        const en = distT < (r.enabled ? lejosFuera : lejos);
+        if (r.enabled !== en) r.enabled = en;
+        if (en) {
+          const cs = distT < sombraObj;
+          if (r.castShadows !== cs) r.castShadows = cs;
+        }
       }
     });
   }
@@ -1155,13 +1191,13 @@ let fpsSuave = 0;
 const NIVELES = [
   () => {}, // (0: todo)
   (on) => { if (post) post.rendering.samples = (on && (!adaptar.dentro || movil)) ? 1 : parseInt(q.get(movil ? 'msaamovil' : 'msaa') || (movil ? '1' : '4'), 10); },   // (dentro del coche en escritorio, el multimuestreo no se quita)
-  (on) => { if (sol.light) sol.light.shadowResolution = on ? 2048 : parseInt(q.get('sres') || '4096', 10); },
-  (on) => { if (post?.ssao) post.ssao.scale = on ? 0.35 : AO_ESCALA; },
+  (on) => { const baseRes = parseInt(q.get('sres') || String(escena.sres ?? 4096), 10); if (sol.light) sol.light.shadowResolution = on ? Math.min(baseRes, baseRes > 2048 ? 2048 : 1024) : baseRes; },
+  (on) => { if (post?.ssao && post.ssao.type !== 'none') post.ssao.scale = on ? 0.35 : AO_ESCALA; },
   null, // (4: la resolución, por debajo de 1×)
   // (5: la sombra, más corta. Hasta el 15-11-2026 también en una sola cascada; pero cambiar las cascadas rehace los
   // sombreadores de todos los materiales, y en un portátil normal era un tirón de casi un segundo cada vez que la calidad
   // bajaba o probaba a subir)
-  (on) => { if (sol.light) sol.light.shadowDistance = on ? 45 : parseFloat(q.get('sdist') || '70'); },
+  (on) => { if (sol.light) sol.light.shadowDistance = on ? 45 : parseFloat(q.get('sdist') || String(escena.sdist ?? 70)); },
 ];
 // (la resolución que de verdad se dibuja: en una pantalla normal, de 1×, el tope de 1,5× no hace nada)
 const ratio = () => Math.min(device.maxPixelRatio, window.devicePixelRatio || 1);
@@ -1468,7 +1504,11 @@ if (q.get('soltartex') !== '0') {
     }
     return ts;
   };
+  let ultAssetsTex = -1;
   const soltarTex = () => {
+    const listaA = app.assets.list();
+    if (listaA.length === ultAssetsTex) return;
+    ultAssetsTex = listaA.length;
     let liberado = 0;
     for (const t of deModelos()) {
       if (t._needsUpload || t._needsMipmapsUpload || !t._levels || t._cubemap || t._soltada) continue;
@@ -1498,10 +1538,13 @@ if (q.get('soltar') !== '0') {
 if (escena.dentro && q.get('dentro') !== '0') {
   const D = escena.dentro, radio = parseFloat(q.get('dentro') || D.radio), suelta = Math.max(D.suelta, radio + 60);
   let ent = null, asset = null, cargando = false, n = 0, llamas = [];
-  // (las llamas tiemblan: tres ritmos, uno por material, con dos ondas y un poco de azar; el resplandor, con ellas)
-  const temblor = [0, 0, 0];
+  // (las llamas tiemblan: solo cuando la cámara está cerca de la iglesia —<35 m— y a ~15 Hz para evitar 6 mat.update() por fotograma)
+  const temblor = [0, 0, 0]; let accLlama = 0;
   app.on('update', (dt) => {
     if (!ent || !llamas.length || q.get('temblor') === '0') return;
+    accLlama += dt; if (accLlama < 0.066) return; accLlama = 0;
+    const cp = camara.getPosition();
+    if ((cp.x - D.centro[0]) ** 2 + (cp.z - D.centro[1]) ** 2 > 35 * 35) return;
     const t = performance.now() / 1000;
     for (let k = 0; k < 3; k++) temblor[k] = 0.82 * temblor[k] + 0.18 * (Math.sin(t * (9.1 + k * 1.7) + k * 2.1) * 0.6 + Math.sin(t * (21.3 + k * 3.1) + k) * 0.4 + (Math.random() - 0.5) * 0.9);
     for (const L of llamas) { L.mt.emissiveIntensity = L.base * (1 + (L.halo ? 0.22 : 0.16) * temblor[L.k]); L.mt.update(); }
@@ -1576,63 +1619,82 @@ if (escena.dentro && q.get('dentro') !== '0') {
 // material del mismo nombre de materiales.glb (con la oclusión horneada y sus imágenes, una vez). ?zonas=0 las carga todas
 let zonas = null;
 if (ZC) {
-  const { radio, suelta, todas, dist, hasta, traer, ya } = ZC, Z = await ZC.Zp;
+  const { radio, suelta, todas, dist, prio, hasta, traer, precargarRed, ya } = ZC, Z = await ZC.Zp;
   const porNombre = new Map(A['parte' + iZ('/materiales.glb')].resource.materials.map((m) => [m.resource?.name, m.resource]));
   const lejos = new Map();
   instancias.get(A['parte' + iZ('/lejos.glb')])?.findComponents('render').forEach((r) => lejos.set(r.entity.name, r));
-  // (las cajas de lejos, con los materiales de materiales.glb: lejos.glb ya no trae imágenes, eran las mismas; cargar
-  // antes, 13-11-2026. Con uno de antes, que no las tiene allí, se queda con las suyas)
   for (const r of lejos.values()) for (const mi of r.meshInstances) {
     const m = porNombre.get(mi.material?.name); if (m) mi.material = m;
     if (nombre === 'guarena' && q.get('sombras') !== 'todas') mi.castShadow = false; // (cajas lejanas >150 m: fuera del alcance de sombra)
   }
-  const estado = new Map(); // (clave → 'cargando' o {e, asset, detalles})
-  const falsa = (b) => { if (b?.storage) b.storage = { byteLength: b.storage.byteLength }; }; // (sin la copia de JavaScript; destroy() aún mira su tamaño)
+  const estado = new Map(); // (clave → 'cargando' o {e, asset, detalles, sombreros})
+  const falsa = (b) => { if (b?.storage) b.storage = { byteLength: b.storage.byteLength }; };
+  // (objetos de calle visibles mucho antes sin aparecer de golpe: 240 m escritorio / 160 m móvil para objetos y señales,
+  // 190/130 m suelo, 120/85 m detalles pequeños; con histéresis de 12 m y sombras recortadas a 72 m)
   const topeDetalleZona = (n) => {
     if (nombre !== 'guarena' || q.get('detalles_zona') === '0') return 0;
-    if (/^z_(detalles_pueblo|imperf_pueblo)_/.test(n)) return 65;
-    if (/^z_suelo_/.test(n)) return 110;
-    if (/^z_(objetos|senales_sueltas)_/.test(n)) return 140;
+    if (/^z_(detalles_pueblo|imperf_pueblo)_/.test(n)) return movil ? 85 : 120;
+    if (/^z_suelo_/.test(n)) return movil ? 130 : 190;
+    if (/^z_(objetos|senales_sueltas)_/.test(n)) return movil ? 160 : 240;
     return 0;
+  };
+  const SOMBRA_ZONA_ON2 = 72 * 72, SOMBRA_ZONA_OFF2 = 82 * 82;
+  const actualizarZona = (s, cx, cz) => {
+    for (let i = 0; i < s.detalles.length; i++) {
+      const d = s.detalles[i];
+      const dx = cx < d.x0 ? d.x0 - cx : cx > d.x1 ? cx - d.x1 : 0;
+      const dz = cz < d.z0 ? d.z0 - cz : cz > d.z1 ? cz - d.z1 : 0;
+      const d2 = dx * dx + dz * dz;
+      const en = d2 < (d.r.enabled ? d.fuera2 : d.tope2);
+      if (d.r.enabled !== en) d.r.enabled = en;
+    }
+    if (s.sombreros) {
+      for (let i = 0; i < s.sombreros.length; i++) {
+        const sh = s.sombreros[i];
+        const dx = cx < sh.x0 ? sh.x0 - cx : cx > sh.x1 ? cx - sh.x1 : 0;
+        const dz = cz < sh.z0 ? sh.z0 - cz : cz > sh.z1 ? cz - sh.z1 : 0;
+        const d2 = dx * dx + dz * dz;
+        const cs = d2 < (sh.on ? SOMBRA_ZONA_OFF2 : SOMBRA_ZONA_ON2);
+        if (sh.on !== cs) {
+          sh.on = cs;
+          for (let j = 0; j < sh.mis.length; j++) sh.mis[j].castShadow = cs;
+        }
+      }
+    }
   };
   const actualizarDetalles = (c) => {
     const cx = c.x, cz = c.z;
     for (const s of estado.values()) {
-      if (!s || s === 'cargando' || !s.detalles.length) continue;
-      for (let i = 0; i < s.detalles.length; i++) {
-        const d = s.detalles[i];
-        const dx = cx < d.x0 ? d.x0 - cx : cx > d.x1 ? cx - d.x1 : 0;
-        const dz = cz < d.z0 ? d.z0 - cz : cz > d.z1 ? cz - d.z1 : 0;
-        d.r.enabled = dx * dx + dz * dz < d.tope2;
-      }
+      if (!s || s === 'cargando') continue;
+      actualizarZona(s, cx, cz);
     }
   };
   const cargar = async (z) => {
     estado.set(z.clave, 'cargando');
     try {
-      const pedida = ya.get(z.clave); ya.delete(z.clave); // (las de la salida, pedidas y leídas mientras llegaba lo demás)
+      const pedida = ya.get(z.clave); ya.delete(z.clave);
       const asset = await (pedida || traer(z));
       const e = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
-      let sin = 0; const trabajos = [], vistas = new Set(), pendDetalles = [];
+      let sin = 0; const trabajos = [], vistas = new Set(), pendDetalles = [], pendSombras = [];
       for (const r of e.findComponents('render')) {
         const sinGrupo = nombre === 'guarena' && q.get('sombras') !== 'todas' && SIN_SOMBRA_GRUPO_GUARENA.test(r.entity.name);
         const topeD = topeDetalleZona(r.entity.name);
         if (topeD) pendDetalles.push({ r, tope: topeD });
+        const misSombra = [];
         for (const mi of r.meshInstances) {
           const m = porNombre.get(mi.material?.name); if (m) mi.material = m; else sin++;
           if (sinGrupo || sinSombra(mi.material?.name)) mi.castShadow = false;
+          else if (nombre === 'guarena' && q.get('sombras') !== 'todas') misSombra.push(mi);
           if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
-          // (compactada en un hilo aparte, y la zona entra en la escena cuando están todas: ver compactarEnHilo)
           const m_ = mi.mesh, soltar_ = () => { if (q.get('soltar') !== '0') { falsa(m_.vertexBuffer); (m_.indexBuffer || []).forEach(falsa); } };
           trabajos.push(q.get('compactar') !== '0' ? compactarEnHilo(m_).then(soltar_) : Promise.resolve(soltar_()));
         }
+        if (misSombra.length) pendSombras.push({ r, mis: misSombra });
       }
       await Promise.all(trabajos);
       if (sin) console.warn(`zona ${z.clave}: ${sin} mallas sin su material en materiales.glb`);
       raiz.addChild(e);
-      const detalles = [];
-      for (let i = 0; i < pendDetalles.length; i++) {
-        const { r, tope } = pendDetalles[i];
+      const cajaRender = (r) => {
         r.entity.getWorldTransform();
         let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
         for (let j = 0; j < r.meshInstances.length; j++) {
@@ -1643,11 +1705,22 @@ if (ZC) {
           if (bc.z - bh.z < z0) z0 = bc.z - bh.z;
           if (bc.z + bh.z > z1) z1 = bc.z + bh.z;
         }
-        if (x0 <= x1) detalles.push({ r, tope2: tope * tope, x0, x1, z0, z1 });
+        return x0 <= x1 ? { x0, x1, z0, z1 } : null;
+      };
+      const detalles = [], sombreros = [];
+      for (let i = 0; i < pendDetalles.length; i++) {
+        const { r, tope } = pendDetalles[i], bb = cajaRender(r);
+        if (bb) detalles.push({ r, tope2: tope * tope, fuera2: (tope + 12) * (tope + 12), ...bb });
       }
-      estado.set(z.clave, { e, asset, detalles });
+      for (let i = 0; i < pendSombras.length; i++) {
+        const { r, mis } = pendSombras[i], bb = cajaRender(r);
+        if (bb) sombreros.push({ mis, on: true, ...bb });
+      }
+      const entry = { e, asset, detalles, sombreros };
+      estado.set(z.clave, entry);
       const l = lejos.get(z.lejos); if (l) l.enabled = false;
-      if (detalles.length) actualizarDetalles(camara.getPosition());
+      const cp = camara.getPosition();
+      actualizarZona(entry, cp.x, cp.z);
     } catch (err) { console.warn('zona', z.clave, err); estado.delete(z.clave); }
   };
   const soltarZona = (z) => {
@@ -1656,25 +1729,37 @@ if (ZC) {
     const l = lejos.get(z.lejos); if (l) l.enabled = true;
   };
   let ocupado = false, cuenta = 0;
-  const repasar = async (p, inicial) => {
+  const repasar = async (p, inicial, fwd = null) => {
     if (ocupado) return; ocupado = true;
     try {
-      const r = hasta(Z, p, inicial);
-      if (!todas) for (const z of Z.zonas) if (dist(z, p) > (r < radio ? r + 30 : suelta)) soltarZona(z);
-      const faltan = Z.zonas.filter((z) => !estado.has(z.clave) && (todas || dist(z, p) < r)).sort((a, b) => dist(a, p) - dist(b, p));
-      if (inicial) await Promise.all(faltan.map(cargar)); else if (faltan.length) await cargar(faltan[0]); // (de una en una al andar: sin tirones)
+      const { r, elegidas } = hasta(Z, p, inicial, fwd);
+      if (!todas) {
+        for (const z of Z.zonas) {
+          if (!estado.has(z.clave)) continue;
+          const d = dist(z, p);
+          if (d > suelta || (elegidas && !elegidas.has(z.clave) && d > r * 0.75 + 35)) soltarZona(z);
+        }
+      }
+      const faltan = Z.zonas
+        .filter((z) => !estado.has(z.clave) && (todas || (elegidas ? elegidas.has(z.clave) : dist(z, p) < r)))
+        .sort((a, b) => prio(a, p, fwd) - prio(b, p, fwd));
+      if (inicial) await Promise.all(faltan.map(cargar));
+      else if (faltan.length) {
+        // (solo descarga de red en segundo plano para la siguiente zona: evita decodificar dos Draco a la vez en el hilo principal)
+        if (faltan.length > 1) precargarRed(faltan[1]);
+        await cargar(faltan[0]);
+      }
     } finally { ocupado = false; }
   };
-  await repasar(ZC.inicio, true);
-  for (const t of ya.values()) t.then((a) => { a.unload(); app.assets.remove(a); }).catch(() => {}); // (si sobrara alguna pedida, fuera)
+  await repasar(ZC.inicio, true, camara.forward);
+  for (const t of ya.values()) t.then((a) => { a.unload(); app.assets.remove(a); }).catch(() => {});
   ya.clear();
   app.on('update', () => {
     const c_ = cuenta++;
     if ((c_ & 7) === 0 && nombre === 'guarena') actualizarDetalles(camara.getPosition());
-    if ((c_ & 31) === 0) repasar(camara.getPosition(), false);
+    if ((c_ & 15) === 0) repasar(camara.getPosition(), false, camara.forward);
   });
-  // (cargarEn: las de alrededor de un sitio, a la vez, como al empezar; para ir de golpe a otro sitio: foto.irA)
-  zonas = { estado, Z, radio, cargadas: () => [...estado.keys()], cargarEn: async (p) => { while (ocupado) await new Promise((r) => setTimeout(r, 50)); await repasar(p, true); if (nombre === 'guarena') actualizarDetalles(camara.getPosition()); } };
+  zonas = { estado, Z, radio, cargadas: () => [...estado.keys()], cargarEn: async (p) => { while (ocupado) await new Promise((r) => setTimeout(r, 50)); await repasar(p, true, camara.forward); if (nombre === 'guarena') actualizarDetalles(camara.getPosition()); } };
   tiempos.zonas = estado.size;
 }
 for (const u of Object.values(mem)) if (u.startsWith('blob:')) URL.revokeObjectURL(u); // (los archivos bajados, ya leídos)
