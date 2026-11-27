@@ -10,7 +10,7 @@
 // - la luz se adapta a la de la calle, mucho más fuerte que la del editor (ver luzSuave y sinSombraPropia).
 // El personaje sale de lo guardado por el editor en el navegador (localStorage «personaje»), o de ?estado=<JSON>.
 import {
-  AnimData, AnimEvents, AnimTrack, Asset, BLEND_NONE, CULLFACE_NONE, Color, Entity, Mat4, PIXELFORMAT_RGBA8, PIXELFORMAT_SRGBA8,
+  AnimCurve, AnimData, AnimEvents, AnimTrack, Asset, BLEND_NONE, CULLFACE_NONE, Color, Entity, INTERPOLATION_LINEAR, Mat4, PIXELFORMAT_RGBA8, PIXELFORMAT_SRGBA8,
   Quat, SHADERLANGUAGE_GLSL, SHADERLANGUAGE_WGSL, ShaderChunks, Texture, Vec3,
 } from 'playcanvas';
 import { crearMelena } from './melena.js';
@@ -740,6 +740,168 @@ export async function montarPersonaje({ app, ruta = './escenas/personaje/', esta
     return new AnimTrack(track.name, track.duration, track.inputs, salidas, curvas, new AnimEvents([]));
   };
 
+  // (adaptación de clips hechos para el esqueleto Rocketbox —p. ej. conduciendo_<tipo>.glb y copiloto_<tipo>.glb— al
+  // esqueleto Anny del personaje del editor, que difiere tanto en ejes de reposo como en la jerarquía de las piernas)
+  const rutaDe = (h) => {
+    const r = [];
+    let c = h;
+    while (c && c !== modelo) { r.unshift(c.name); c = c.parent; }
+    return r;
+  };
+  const restLocal = huesos.map((h) => h.getLocalRotation().clone());
+  function retargetar(asset) {
+    const track = asset?.resource?.animations?.[0]?.resource;
+    if (!track) return null;
+    const src = asset.resource.instantiateRenderEntity();
+    const srcLoc = new Map(), srcWorldInv = new Map(), srcPadre = new Map(), srcPos = new Map(), srcHijo = new Map(), orden = [];
+    const rec = (n, p) => {
+      if (n.name) {
+        srcLoc.set(n.name, n.getLocalRotation().clone());
+        srcWorldInv.set(n.name, n.getRotation().clone().invert());
+        srcPos.set(n.name, n.getPosition().clone());
+        srcPadre.set(n.name, p);
+        if (p && !srcHijo.has(p)) srcHijo.set(p, n.name);
+        orden.push(n.name);
+      }
+      for (const ch of n.children) rec(ch, n.name || p);
+    };
+    rec(src, null);
+    src.destroy();
+
+    // (alinear pose de reposo: Rocketbox es T-pose y Anny es A-pose; para cada hueso con hijo común, rotamos la
+    // dirección de reposo de Anny a la de Rocketbox para que brazos, antebrazos y piernas apunten al mismo sitio)
+    const dstHijo = new Map();
+    for (let i = 0; i < huesos.length; i++) {
+      const p = padreDe[i];
+      if (p !== undefined && !dstHijo.has(p) && srcPos.has(huesos[i].name)) dstHijo.set(p, i);
+    }
+    const alinear = new Map();
+    const vSrc = new Vec3(), vDst = new Vec3(), vEje = new Vec3();
+    for (let i = 0; i < huesos.length; i++) {
+      const nm = huesos[i].name, chIdx = dstHijo.get(i), pA = nuevo.get(i);
+      if (chIdx === undefined || !pA || !srcPos.has(nm)) continue;
+      const chNm = huesos[chIdx].name, pB = nuevo.get(chIdx);
+      if (!pB || !srcPos.has(chNm)) continue;
+      vSrc.sub2(srcPos.get(chNm), srcPos.get(nm));
+      vDst.sub2(pB, pA);
+      if (vSrc.lengthSq() < 1e-6 || vDst.lengthSq() < 1e-6) continue;
+      vSrc.normalize(); vDst.normalize();
+      const dot = Math.max(-1, Math.min(1, vDst.dot(vSrc)));
+      if (dot > 0.9999) continue;
+      vEje.cross(vDst, vSrc);
+      if (vEje.lengthSq() > 1e-8) {
+        alinear.set(i, new Quat().setFromAxisAngle(vEje.normalize(), Math.acos(dot) * 180 / Math.PI));
+      }
+    }
+
+    const rotCurvas = new Map();
+    let posCadera = null, tiempos = null;
+    for (const c of track.curves) {
+      const p0 = c.paths[0]; if (!p0) continue;
+      const hueso = p0.entityPath[p0.entityPath.length - 1], prop = p0.propertyPath[0];
+      const inp = track.inputs[c.input].data, out = track.outputs[c.output].data;
+      if (prop === 'localRotation') {
+        rotCurvas.set(hueso, { inp, out });
+        if (!tiempos || inp.length > tiempos.length) tiempos = inp;
+      } else if (prop === 'localPosition' && hueso === 'mixamorig:Hips') {
+        posCadera = { inp, out };
+      }
+    }
+    if (!tiempos?.length) return null;
+
+    const evalQ = (cv, t, qOut) => {
+      const { inp, out } = cv, n = inp.length;
+      if (n <= 1 || t <= inp[0]) return qOut.set(out[0], out[1], out[2], out[3]);
+      if (t >= inp[n - 1]) { const k = (n - 1) * 4; return qOut.set(out[k], out[k + 1], out[k + 2], out[k + 3]); }
+      let i = 0; while (i + 1 < n && inp[i + 1] < t) i++;
+      const u = (t - inp[i]) / Math.max(1e-6, inp[i + 1] - inp[i]);
+      const a = new Quat(out[i * 4], out[i * 4 + 1], out[i * 4 + 2], out[i * 4 + 3]);
+      const b = new Quat(out[(i + 1) * 4], out[(i + 1) * 4 + 1], out[(i + 1) * 4 + 2], out[(i + 1) * 4 + 3]);
+      return qOut.slerp(a, b, u);
+    };
+    const evalV = (cv, t) => {
+      const { inp, out } = cv, n = inp.length;
+      if (n <= 1 || t <= inp[0]) return [out[0], out[1], out[2]];
+      if (t >= inp[n - 1]) { const k = (n - 1) * 3; return [out[k], out[k + 1], out[k + 2]]; }
+      let i = 0; while (i + 1 < n && inp[i + 1] < t) i++;
+      const u = (t - inp[i]) / Math.max(1e-6, inp[i + 1] - inp[i]);
+      return [
+        out[i * 3] + (out[(i + 1) * 3] - out[i * 3]) * u,
+        out[i * 3 + 1] + (out[(i + 1) * 3 + 1] - out[i * 3 + 1]) * u,
+        out[i * 3 + 2] + (out[(i + 1) * 3 + 2] - out[i * 3 + 2]) * u,
+      ];
+    };
+
+    const nF = tiempos.length;
+    const dstOrden = [];
+    const vis = new Set();
+    const anadir = (i) => {
+      if (vis.has(i)) return;
+      const p = padreDe[i]; if (p !== undefined) anadir(p);
+      vis.add(i); dstOrden.push(i);
+    };
+    for (let i = 0; i < huesos.length; i++) anadir(i);
+
+    const animados = dstOrden.filter((i) => srcWorldInv.has(huesos[i].name));
+    const bufRot = new Map(animados.map((i) => [i, new Float32Array(nF * 4)]));
+    const bufPos = posCadera && deHueso.has('mixamorig:Hips') ? new Float32Array(nF * 3) : null;
+    const qTmp = new Quat(), qInv = new Quat(), qLoc = new Quat();
+
+    for (let f = 0; f < nF; f++) {
+      const t = tiempos[f];
+      const wSrc = new Map();
+      for (const nm of orden) {
+        const cv = rotCurvas.get(nm);
+        const ql = cv ? evalQ(cv, t, qTmp.clone()) : (srcLoc.get(nm)?.clone() || new Quat());
+        const pn = srcPadre.get(nm), wp = pn && wSrc.get(pn);
+        wSrc.set(nm, wp ? new Quat().mul2(wp, ql) : ql);
+      }
+      const wDst = new Array(huesos.length);
+      for (const i of dstOrden) {
+        const nm = huesos[i].name, ws = wSrc.get(nm), si = srcWorldInv.get(nm);
+        if (ws && si) {
+          // (W_dst = W_src * Q_src^-1 * R_align * Q_dst)
+          const q = new Quat().mul2(ws, si);
+          const ra = alinear.get(i);
+          if (ra) q.mul(ra);
+          wDst[i] = q.mul(giros[i]);
+        } else {
+          const p = padreDe[i];
+          wDst[i] = p !== undefined && wDst[p] ? new Quat().mul2(wDst[p], restLocal[i]) : giros[i].clone();
+        }
+      }
+      for (const i of animados) {
+        const p = padreDe[i];
+        if (p !== undefined && wDst[p]) qLoc.mul2(qInv.copy(wDst[p]).invert(), wDst[i]);
+        else qLoc.copy(wDst[i]);
+        const b = bufRot.get(i), o = f * 4;
+        if (f > 0 && b[o - 4] * qLoc.x + b[o - 3] * qLoc.y + b[o - 2] * qLoc.z + b[o - 1] * qLoc.w < 0) {
+          qLoc.x = -qLoc.x; qLoc.y = -qLoc.y; qLoc.z = -qLoc.z; qLoc.w = -qLoc.w;
+        }
+        b[o] = qLoc.x; b[o + 1] = qLoc.y; b[o + 2] = qLoc.z; b[o + 3] = qLoc.w;
+      }
+      if (bufPos) {
+        const v = evalV(posCadera, t);
+        // (mi.raiz lleva localPosition.y = -zmin; sumamos zmin para mantener la cadera a la misma cota exacta en el asiento)
+        bufPos[f * 3] = v[0]; bufPos[f * 3 + 1] = v[1] + zmin; bufPos[f * 3 + 2] = v[2];
+      }
+    }
+
+    const inputs = [new AnimData(1, new Float32Array(tiempos))];
+    const outputs = [], curves = [];
+    for (const i of animados) {
+      const outIdx = outputs.length;
+      outputs.push(new AnimData(4, bufRot.get(i)));
+      curves.push(new AnimCurve([{ entityPath: rutaDe(huesos[i]), component: 'graph', propertyPath: ['localRotation'] }], 0, outIdx, INTERPOLATION_LINEAR));
+    }
+    if (bufPos) {
+      const ih_ = deHueso.get('mixamorig:Hips'), outIdx = outputs.length;
+      outputs.push(new AnimData(3, bufPos));
+      curves.push(new AnimCurve([{ entityPath: rutaDe(huesos[ih_]), component: 'graph', propertyPath: ['localPosition'] }], 0, outIdx, INTERPOLATION_LINEAR));
+    }
+    return new AnimTrack(track.name + '_anny', track.duration, inputs, outputs, curves, new AnimEvents([]));
+  }
+
   // ---- la mirada: los globos giran con su hueso hacia la cámara, con sus límites y pequeños saltos; los párpados
   // acompañan con los gestos de mirar (como en el editor)
   const ADELANTE = new Vec3(0, 0, 1), IZQUIERDA = new Vec3(1, 0, 0), ARRIBA = new Vec3(0, 1, 0);
@@ -833,6 +995,6 @@ export async function montarPersonaje({ app, ruta = './escenas/personaje/', esta
   datos = null;
   // (activos: lo cargado en la gráfica, para soltarlo —el personaje de otro que se va—)
   // (soltar: lo que queda fuera del personaje al quitarlo —la melena simulada—)
-  return { raiz, modelo, estado, mis, pista, actualizar, altura, escalaCadera, pon, muelle, melena, activos: [aCuerpo, ...aPrendas].filter(Boolean),
+  return { raiz, modelo, estado, mis, misPelo, pista, retargetar, actualizar, altura, escalaCadera, pon, muelle, melena, activos: [aCuerpo, ...aPrendas].filter(Boolean),
     ocultarMelena: (si) => { if (entMelena) entMelena.enabled = !si; }, soltar: () => { melena?.destruir?.(); } };
 }

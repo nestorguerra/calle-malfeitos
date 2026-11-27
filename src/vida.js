@@ -397,6 +397,8 @@ export async function montarCoches({ app, vida, carpeta, glb, camara, q, movil =
   if (!dist || !vida.coches?.length) return null;
   const a = await new Promise((ok) => { const x = new Asset('coches_cerca', 'container', { url: glb(carpeta + 'coches_cerca.glb') }); x.once('load', () => ok(x)); x.once('error', () => ok(null)); app.assets.add(x); app.assets.load(x); });
   if (!a) return null;
+  const aniso = Math.min(16, app.graphicsDevice.maxAnisotropy || 8);
+  a.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = aniso; });
   if (q.get('refraccion') !== '1') a.resource.materials.forEach((m) => { const mt = m.resource; if (mt && mt.refraction > 0) { mt.refraction = 0; mt.update(); } }); // (los cristales, sin la refracción que dejaba ver el cielo morado: src/main.js)
   const modelos = a.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
   // las lunas, tintadas como las de un coche de verdad (15-11-2026; el usuario: «el coche se ve pixelado»): eran una película

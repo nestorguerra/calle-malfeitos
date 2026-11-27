@@ -81,7 +81,7 @@ const NOMBRES = ['Lucía', 'Carmen', 'María', 'Paula', 'Elena', 'Julia', 'Sara'
 const LETRAS = /[^A-Za-zÁÉÍÓÚÑáéíóúñü]/g;
 const guardado = { leer: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, poner: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } } };
 
-export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, vida, personaje, clips, movil, desde388, mio, estadoMio, glb, pueblo, salida, inicioDeSerie, iglesia, carpetas }) {
+export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, vida, personaje, clips, movil, desde388, mio, estadoMio, glb, pueblo, salida, inicioDeSerie, iglesia, carpetas, cuerpoCoche = null }) {
   const { ws: urlServidor, ine } = servidor(q, pueblo);
   if (q.get('multi') === '0' || !ine) return null;
   const NOMBRE_PUEBLO = pueblo?.nombre || 'El pueblo';
@@ -229,7 +229,7 @@ export function montarMulti({ app, q, escena, ctrl, muneco, tpc, camara, reloj, 
   const nombreDe = (o) => o?.p?.n || 'alguien';
   const figuras = montarFiguras({ app, q, personaje, clips, mio, movil, glb: glb || ((u) => u), carpetaChica: carpetas?.chica || undefined });
   const enviar = (o) => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(o)); } catch (e) { /* se reconecta */ } } };
-  const coches = montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe, yoId: () => yo, carpeta: carpetas?.coches || null });
+  const coches = montarCochesMulti({ app, q, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe, yoId: () => yo, carpeta: carpetas?.coches || null, cuerpoCoche });
   const genteM = montarGenteMulti({ enviar, otros, yo: () => yo, miOrden: () => miOrden, miPos: () => ctrl.getPosition() });
 
   function crear(id, p = {}, orden = null) {

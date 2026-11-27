@@ -8,11 +8,12 @@
 //   con la cámara detrás del coche (arrastrando se mira alrededor), y E o «Bajar» para bajarse (por la derecha). Si quien
 //   conduce se baja o se va, también. Los demás lo ven como «de copiloto» encima del coche.
 import { Entity, Quat, Vec3 } from 'playcanvas';
+import { cargarSentados, sentadosListos } from './asiento_coche.js';
 
 const RAD = 180 / Math.PI;
 const CDM = 0.42; // (el centro del coche que se conduce, sobre el suelo: src/conducir.js)
 
-export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe, yoId = () => null, carpeta = null }) {
+export function montarCochesMulti({ app, q = null, ctrl, tpc, muneco, camara, movil, enviar, otros, nombreDe, yoId = () => null, carpeta = null, cuerpoCoche = null }) {
   const coches = () => window.foto?.coches?.coches || null;
   const conducir = () => window.foto?.conducir?.estado?.() || null;
   const porNodo = (n) => coches()?.find((k) => k.c.nodo === n) || null;
@@ -79,6 +80,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   }
   function quitarRemoto(id, aparcarlo) {
     const rc = remotos.get(id); if (!rc) return;
+    if (copi?.id === id) bajarCopiloto(); // (liberar el muñeco propio antes de destruir rc.raiz)
     remotos.delete(id);
     rc.raiz.destroy(); rc.caja.destroy();
     // (si no ha llegado dónde lo dejó —se perdió el aviso—, donde se le vio por última vez)
@@ -110,8 +112,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   // coche (x adelante, y arriba, z a la derecha, desde el suelo bajo su centro —el que manda quien conduce, CDM más
   // arriba—). Sin ellos, como antes: un poco hacia atrás, a un lado y a ras del asiento, con la animación de estar sentada
   // (src/multi.js); ?asiento=atras,lado,alto para ajustar ese de repuesto, y ?sentados=0, como antes (para comparar)
-  let SENTADOS = {};
-  if (carpeta && new URLSearchParams(location.search).get('sentados') !== '0') fetch(carpeta + 'coches_sentados.json').then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.tipos) SENTADOS = j.tipos; }).catch(() => {});
+  cargarSentados(carpeta, q || new URLSearchParams(location.search));
   const AS = (q_ => { const v = (q_ || '').split(',').map(parseFloat); return { atras: isFinite(v[0]) ? v[0] : 0.3, lado: isFinite(v[1]) ? v[1] : 0.37, alto: isFinite(v[2]) ? v[2] : 0.1 }; })(new URLSearchParams(location.search).get('asiento'));
   const conTipo = (rc) => (rc?.ult ? [...rc.ult, rc.k.c.tipo] : null);
   function cocheDe(o) {   // ([x, y, z, rumbo, tipo] del coche en el que va o: el que lleva, o el de quien le lleva —que puedo ser yo—)
@@ -125,7 +126,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   // (el sitio de la figura —su origen, a sus pies— y, para el copiloto, sus ojos; clip: la postura de ese modelo de coche)
   function sitioAsiento(u, conductor) {
     const [x, y, z, r, tipo] = u, a = r / RAD, fx = Math.sin(a), fz = Math.cos(a), rx = -Math.cos(a), rz = Math.sin(a);
-    const S = SENTADOS[tipo], o = S?.[conductor ? 'conductor' : 'copiloto'];
+    const S = sentadosListos(carpeta)[tipo], o = S?.[conductor ? 'conductor' : 'copiloto'];
     const en = (v) => [x + fx * v[0] + rx * v[2], y - CDM + v[1], z + fz * v[0] + rz * v[2]];
     if (o) {
       const [px, py, pz] = en(o);
@@ -163,6 +164,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
     if (window.foto?.acciones?.estado?.()?.modo && window.foto.acciones.estado().modo !== 'pie') return false;
     tpc?.fire?.('speed', 0); ctrl.enabled = false;
     copi = { id: o.id, k: rc.k, pos: camara.getPosition().clone(), giro: 0, alto: 0, quieto: 0, vista: 'fuera' };
+    cuerpoCoche?.sentar({ padre: rc.raiz, tipo: rc.k.c.tipo, puesto: 'copiloto', primeraPersona: false });
     bBajar.hidden = false;
     if (ayuda) { ayudaAntes = ayuda.textContent; ayuda.textContent = AYUDA_COPI; }
     return true;
@@ -170,6 +172,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   function bajarCopiloto() {
     if (!copi) return;
     if (copi.vista === 'dentro') vistaCopiloto('fuera');
+    cuerpoCoche?.salir();
     const rc = remotos.get(copi.id);
     const ult = rc?.ult || null;
     let sitio = null;
@@ -212,6 +215,7 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
     if (!copi) return;
     const rc = remotos.get(copi.id);
     copi.vista = v; copi.giro = copi.alto = 0;
+    cuerpoCoche?.primeraPersona(v === 'dentro');
     if (v === 'dentro') {
       copi.near = camara.camera.nearClip; copi.fov = camara.camera.fov;
       camara.camera.nearClip = 0.04; camara.camera.fov = innerWidth < innerHeight ? 82 : 58;
@@ -233,7 +237,8 @@ export function montarCochesMulti({ app, ctrl, tpc, muneco, camara, movil, envia
   addEventListener('pointerdown', (e) => { if (copi && e.target?.tagName === 'CANVAS') arrastre = { x: e.clientX, y: e.clientY }; });
   addEventListener('pointermove', (e) => {
     if (!copi || !arrastre) return;
-    copi.giro -= (e.clientX - arrastre.x) * 0.3; copi.alto = Math.max(-15, Math.min(40, copi.alto + (e.clientY - arrastre.y) * 0.15)); copi.quieto = 0;
+    const maxAlto = copi.vista === 'dentro' ? 78 : 40;
+    copi.giro -= (e.clientX - arrastre.x) * 0.3; copi.alto = Math.max(-15, Math.min(maxAlto, copi.alto + (e.clientY - arrastre.y) * 0.15)); copi.quieto = 0;
     arrastre.x = e.clientX; arrastre.y = e.clientY;
   });
   addEventListener('pointerup', () => { arrastre = null; });

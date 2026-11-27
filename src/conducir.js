@@ -99,9 +99,10 @@ const PAR = [62, 95, 112, 122, 124, 120, 110, 95];
 const MARCHAS = [3.45, 1.95, 1.28, 0.97, 0.78], ATRAS = 3.2, GRUPO = 4.1, RALENTI = 850, CORTE = 6400;
 const par = (rpm) => { const u = Math.max(0, Math.min(6.99, rpm / 1000)), i = Math.floor(u), f = u - i; return PAR[i] * (1 - f) + PAR[i + 1] * f; };
 
-export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, cajas, carpeta, glb, post, movil, sonido, compactar }) {
+export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, cajas, carpeta, glb, post, movil, sonido, compactar, cuerpoCoche = null }) {
   if (q.get('conducir') === '0' || !coches?.coches?.length || !window.Ammo) return null;
-  const OJO = { alto: parseFloat(q.get('ojoalto') ?? '0.07'), adelante: parseFloat(q.get('ojoadelante') ?? '0.16'), picado: parseFloat(q.get('ojopicado') ?? '-3') };
+  const OJO = { alto: parseFloat(q.get('ojoalto') ?? '0.07'), adelante: parseFloat(q.get('ojoadelante') ?? '0.16'), picado: parseFloat(q.get('ojopicado') ?? '-9'),
+    dAlto: q.has('ojoalto') ? parseFloat(q.get('ojoalto')) - 0.07 : 0, dAdelante: q.has('ojoadelante') ? parseFloat(q.get('ojoadelante')) - 0.16 : -0.11 };
   const Ammo = window.Ammo, mundo = app.systems.rigidbody.dynamicsWorld, sys = app.systems.rigidbody;
   // (cada coche, con su caja: la que tiene el centro a menos de 1,2 m del suyo)
   for (const k of coches.coches) {
@@ -330,6 +331,11 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     if (post?.taa) { est.taa = post.taa.enabled; post.taa.enabled = false; } // (el antialias temporal emborrona lo que va con la cámara: el coche)
     if (sonido && !est.motor) { est.pn = sonido.panner([0, 0.6, 0], 3, 60); est.motor = sonido.sonar('motor', est.pn, { gan: 0, bucle: true }); }
     est.modo = 'conduciendo';
+    // (sentar el propio personaje en el asiento del conductor con la postura medida de este modelo, incluso con ?multi=0;
+    // en el Superb, conduciendo_superb.glb agarra el volante de coches_cerca, desplazado (+0,045, -0,045, +0,025) respecto
+    // al nodo volante de conducir_superb.glb —docs/registro.md 23-11-2026—, así que aquí compensamos ese pequeño desvío)
+    const ajusteAsiento = k.c.tipo === 'superb' && modelo ? [-0.045, 0.045, -0.025] : null;
+    cuerpoCoche?.sentar({ padre: vista, tipo: k.c.tipo, puesto: 'conductor', primeraPersona: est.vista === 'dentro', ajuste: ajusteAsiento });
     ponerBotones();
     return true;
   }
@@ -360,6 +366,8 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
     caja.x = p.x; caja.z = p.z; caja.dx = Math.cos(yaw / RAD); caja.dz = -Math.sin(yaw / RAD); caja.y0 += dy; caja.y1 += dy;
     caja.e.setPosition(p.x, (caja.y0 + caja.y1) / 2, p.z); caja.e.setEulerAngles(0, yaw, 0);
     mundo.removeAction(veh); for (const x of [veh, C.rayos, C.ajuste]) { try { Ammo.destroy(x); } catch (e) { /* (sin destructor en esta versión de Ammo) */ } }
+    // (sacar el muñeco propio antes de destruir el chasis para no destruirlo con él)
+    cuerpoCoche?.salir();
     C.modelo?.soltar?.(); chasis.destroy();
     caja.e.enabled = true; caja.e.rigidbody.teleport(caja.e.getPosition(), caja.e.getRotation());
     if (k.cerca) { k.cerca.destroy(); k.cerca = null; } // (montarCoches la vuelve a hacer en su sitio nuevo)
@@ -391,7 +399,8 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       const a = new Asset('conducir_' + k.c.tipo, 'container', { url: glb(url) });
       a.once('load', () => ok(a)); a.once('error', mal); app.assets.add(a); app.assets.load(a);
     });
-    asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = 8; });   // (como las del pueblo: el salpicadero y la tapicería, vistos de lado, nítidos)
+    const aniso = Math.min(16, app.graphicsDevice.maxAnisotropy || 8);
+    asset.resource.textures.forEach((t) => { if (t.resource) t.resource.anisotropy = aniso; });   // (como las del pueblo: el salpicadero y la tapicería, vistos de lado, nítidos)
     if (q.get('refraccion') !== '1') asset.resource.materials.forEach(({ resource: m }) => { if (m && m.refraction > 0) { m.refraction = 0; m.update(); } });
     const e = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
     // (sus mallas, como las del pueblo: normales en 8 bits y sin la copia de JavaScript, que no hace falta: la física del
@@ -465,8 +474,9 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   function cambiarVista() {
     if (est.modo !== 'conduciendo') return;
     est.vista = est.vista === 'fuera' ? 'dentro' : 'fuera'; est.mirar.yaw = est.mirar.pitch = 0; ponerVidrios();
-    window.foto?.calidadDentro?.(est.vista === 'dentro');   // (dentro, con toda la resolución y el multimuestreo: src/main.js)
-    if (est.vista === 'dentro') { est.near = camara.camera.nearClip; est.fov = camara.camera.fov; camara.camera.nearClip = 0.04; camara.camera.fov = parseFloat(q.get('fovcoche') || (innerWidth < innerHeight ? '82' : '58')); } // (en vertical, más abierta: con 62° de alto quedaban 30 de ancho)
+    cuerpoCoche?.primeraPersona(est.vista === 'dentro');
+    window.foto?.calidadDentro?.(est.vista === 'dentro');   // (dentro, salpicadero nítido en escritorio Retina y móvil: src/main.js)
+    if (est.vista === 'dentro') { est.near = camara.camera.nearClip; est.fov = camara.camera.fov; camara.camera.nearClip = 0.04; camara.camera.fov = parseFloat(q.get('fovcoche') || (innerWidth < innerHeight ? '92' : '66')); } // (en vertical, 92° abre el campo horizontal para ver manos y antebrazos al volante; en escritorio 66° con −9° de picado)
     else { camara.camera.nearClip = est.near ?? 0.1; camara.camera.fov = est.fov ?? camara.camera.fov; }
     ponerBotones();
   }
@@ -623,18 +633,24 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
   function moverCamara(dt, mandos) {
     const { chasis, L, cdm } = C, f = adelante();
     const M = est.mirar;
-    if (mandos.mirar[0] || mandos.mirar[1]) { M.yaw -= mandos.mirar[0]; M.pitch = Math.max(-40, Math.min(60, M.pitch + mandos.mirar[1] * (tpc.invertLookY ? 1 : -1))); M.quieto = 0; }
+    const maxPitch = est.vista === 'dentro' ? 82 : 60;
+    if (mandos.mirar[0] || mandos.mirar[1]) { M.yaw -= mandos.mirar[0]; M.pitch = Math.max(-40, Math.min(maxPitch, M.pitch + mandos.mirar[1] * (tpc.invertLookY ? 1 : -1))); M.quieto = 0; }
     else { M.quieto += dt; if (M.quieto > 1.2) { const k = 1 - Math.exp(-dt * 2.5); M.yaw *= 1 - k; M.pitch *= 1 - k; } }
     M.yaw = ((M.yaw + 540) % 360) - 180;
     const T = chasis.getWorldTransform();
     let pos, rot;
     if (est.vista === 'dentro') {
-      // (los ojos, 7 cm más altos y 16 más adelante que los del modelo, la mirada 3° hacia abajo y algo menos abierta
-      // —58° de alto en vez de 62—: sentada más erguida y más cerca del parabrisas, se ve más calle y menos coche; más
-      // altos, los parasoles tapaban media pantalla. 15-11-2026, el usuario: «dentro del coche se ve poco la carretera,
-      // haz que el personaje esté más levantado en el asiento… y un poco menos por dentro del coche». ?ojoalto=,
-      // ?ojoadelante= en metros y ?ojopicado= en grados, negativo hacia abajo; ?fovcoche=)
-      const o0 = C.modelo?.datos?.ojo || [-0.05, 1.16, -0.37], ojo = [o0[0] + OJO.adelante, o0[1] + OJO.alto, o0[2]];
+      // (los ojos: los medidos de la figura sentada en coches_sentados.json para alinear cámara y brazos propios, o el
+      // punto del modelo + OJO si no están disponibles; ?ojoalto=, ?ojoadelante=, ?ojopicado= siguen ajustando)
+      const oc = cuerpoCoche?.datos?.()?.[C.k.c.tipo]?.ojos_conductor;
+      const o0 = C.modelo?.datos?.ojo || [-0.05, 1.16, -0.37];
+      // (al bajar la cabeza para mirar el cuerpo o las piernas, los ojos pivotan hacia delante sobre el pecho como en una
+      // persona real, evitando asomarse al hueco del cuello de la camiseta mientras el encuadre recto conserva brazos y volante)
+      const tAbajo = Math.max(0, Math.min(1, M.pitch / 55));
+      const avAbajo = tAbajo * tAbajo * (3 - 2 * tAbajo) * 0.16;
+      const ojo = oc
+        ? [oc[0] + OJO.dAdelante + avAbajo, oc[1] + OJO.dAlto, oc[2]]
+        : [o0[0] + OJO.adelante + avAbajo, o0[1] + OJO.alto, o0[2]];
       // (la cabeza, con el cuerpo: se va un poco hacia atrás al acelerar, hacia delante al frenar y hacia fuera en las
       // curvas, con algo de retraso; y un temblor muy leve que crece con la velocidad)
       const lv = chasis.rigidbody.linearVelocity, ac = est.acelPrev ? v2.sub2(lv, est.acelPrev).mulScalar(1 / Math.max(dt, 1e-3)) : v2.set(0, 0, 0);
@@ -645,7 +661,7 @@ export function montarConducir({ app, q, ctrl, muneco, tpc, camara, coches, caja
       H.x += (-along * 0.006 - H.x) * kk; H.z += (-side * 0.005 - H.z) * kk;
       const tiembla = Math.min(1, Math.abs(est.v) / 15) * 0.0015 * Math.sin(est.cuadro * 1.7) * Math.sin(est.cuadro * 0.37);
       pos = T.transformPoint(v1.set(-ojo[2] - H.z, ojo[1] - cdm + tiembla, ojo[0] + H.x), new Vec3());
-      rot = new Quat().copy(chasis.getRotation()).mul(qt.setFromEulerAngles(0, 180 + Math.max(-140, Math.min(140, M.yaw)), 0)).mul(qt2.setFromEulerAngles(-Math.max(-50, Math.min(55, M.pitch)) * 0.8 + OJO.picado, 0, 0));
+      rot = new Quat().copy(chasis.getRotation()).mul(qt.setFromEulerAngles(0, 180 + Math.max(-140, Math.min(140, M.yaw)), 0)).mul(qt2.setFromEulerAngles(-Math.max(-50, Math.min(82, M.pitch)) * 0.8 + OJO.picado, 0, 0));
     } else {
       const yawCoche = Math.atan2(-f.x, -f.z) * RAD;
       if (est.camYaw === null) est.camYaw = yawCoche;

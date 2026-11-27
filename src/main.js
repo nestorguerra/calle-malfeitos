@@ -28,6 +28,7 @@ import { montarMulti, salidaMulti } from './multi.js';
 import { bancosSolidos, montarAnimales, montarCoches, montarDinamicas, montarVecinos, montarVida, viento } from './vida.js';
 import { aparcar, pintarCoches } from './aparcados.js';
 import { montarConducir, separarCajas } from './conducir.js';
+import { montarCuerpoCoche } from './asiento_coche.js';
 import { montarTeclado } from './teclado.js';
 
 const q = new URLSearchParams(location.search);
@@ -736,7 +737,7 @@ if (mi) muneco.anim.rootBone = mi.modelo; // (sus huesos cuelgan de su modelo, u
 muneco.anim.loadStateGraph({
   layers: [{
     name: 'piernas',
-    states: [{ name: 'START' }, { name: 'Quieto', speed: 1 }, { name: 'Andar', speed: mi ? PASO_MI.andar.pasa : 1 }, { name: 'Correr', speed: mi ? PASO_MI.correr.pasa : chica ? 1.35 : 1 } /* (la chica, con la zancada amortiguada: pasos más cortos y más rápidos) */, { name: 'Saltar', speed: chica ? 1.8 : 1 } /* (el salto de captura dura 2,6 s con su impulso y su caída; el del juego, menos) */, { name: 'END' }],
+    states: [{ name: 'START' }, { name: 'Quieto', speed: 1 }, { name: 'Andar', speed: mi ? PASO_MI.andar.pasa : 1 }, { name: 'Correr', speed: mi ? PASO_MI.correr.pasa : chica ? 1.35 : 1 } /* (la chica, con la zancada amortiguada: pasos más cortos y más rápidos) */, { name: 'Saltar', speed: chica ? 1.8 : 1 } /* (el salto de captura dura 2,6 s con su impulso y su caída; el del juego, menos) */, { name: 'Conduciendo', speed: 1 }, { name: 'Copiloto', speed: 1 }, { name: 'END' }],
     transitions: [
       { from: 'START', to: 'Quieto', time: 0, priority: 0 },
       // (las mezclas de un paso a otro: con 0,1 s la chica cambiaba de golpe; de quieta a andar, un cuarto de segundo, y de
@@ -783,6 +784,7 @@ const ladeable = mi ? mi.raiz : (chica && q.get('fluido') !== '0' ? muneco.child
 if (ladeable) {
   let rumbo = null, giro = 0, ladeo = 0;
   app.on('update', (dt) => {
+    if (!ctrl.enabled) { rumbo = null; giro = 0; ladeo = 0; ladeable.setLocalEulerAngles(0, 0, 0); return; }
     const f = muneco.forward, r = Math.atan2(f.x, f.z), lv = ctrl.rigidbody.linearVelocity, v = Math.hypot(lv.x, lv.z);
     let d = rumbo === null ? 0 : r - rumbo; rumbo = r; d -= Math.round(d / (2 * Math.PI)) * 2 * Math.PI;
     const k = Math.min(1, dt / 0.18);
@@ -823,13 +825,14 @@ const muelles = melena.map((cadena) => cadena.map((h, i) => {
 }));
 const mv = { a: new Vec3(), b: new Vec3(), c: new Vec3(), q: new Quat(), r: new Quat() };
 function moverMelena(dt) {
+  if (!ctrl.enabled) { for (const cadena of muelles) for (const m of cadena) { m.cur = null; m.prev = null; m.h.setLocalRotation(m.rest); } return; }
   const d = Math.min(dt, 1 / 30), RIGIDEZ = parseFloat(q.get('rigidez') || '0.07'), ROCE = 0.12, GRAVEDAD = 2.5; // (rigidez baja: la melena se mece con cada paso y tarda en volver, como en el vídeo)
   for (const cadena of muelles) {
     for (const m of cadena) {
       m.h.setLocalRotation(m.rest); // (la pose de la animación, sin muelle)
       const cab = m.h.getPosition(), dir = mv.a.copy(m.h.up).mulScalar(m.largo); // (en glTF los huesos apuntan a +y)
       const reposo = new Vec3().add2(cab, dir);
-      if (!m.cur) { m.cur = reposo.clone(); m.prev = reposo.clone(); }
+      if (!m.cur || m.cur.distance(reposo) > 1.2) { m.cur = reposo.clone(); m.prev = reposo.clone(); }
       const vel = mv.b.sub2(m.cur, m.prev).mulScalar(1 - ROCE);
       m.prev.copy(m.cur);
       m.cur.add(vel).add(mv.c.sub2(reposo, m.cur).mulScalar(RIGIDEZ)).add(new Vec3(0, -GRAVEDAD * d * d, 0));
@@ -871,7 +874,7 @@ if (q.get('fluido') !== '0') {
   // cuando el controlador ya lo ha puesto
   let yawSuave = null;
   app.on('update', (dt) => {
-    if (enRuta) { yawSuave = null; return; }   // (las rutas de medida giran el muñeco por su cuenta)
+    if (enRuta || !ctrl.enabled) { yawSuave = null; return; }   // (las rutas de medida y el coche giran el muñeco por su cuenta)
     const quiere = tpc._modelYaw; if (quiere === undefined) return;
     if (yawSuave === null) yawSuave = quiere;
     let d = quiere - yawSuave; d -= Math.round(d / 360) * 360;
@@ -890,7 +893,7 @@ tpc.on('speed', (b) => { if (q.get('fluido') === '0') muneco.anim.setInteger('v'
 if (q.get('fluido') !== '0') {
   let paso = 0;
   app.on('update', () => {
-    if (enRuta || !tpc._grounded) return;
+    if (enRuta || !ctrl.enabled || !tpc._grounded) return;
     const lv = ctrl.rigidbody.linearVelocity, h = Math.hypot(lv.x, lv.z), c = tpc.jogSpeedThreshold, quiere = tpc._state.axis.lengthSq() > 0;
     const corre = quiere && tpc._state.shift > 0 && paso === 2;   // (y si va corriendo y sigue con Mayús, tampoco deja de correr por ese bajón)
     paso = h < tpc.walkSpeedThreshold && !(quiere && h > 0.15) ? 0 : (corre || h >= c * (paso === 2 ? 0.9 : 1)) ? 2 : 1;
@@ -960,7 +963,7 @@ const pide = { x: 0, z: 0, t: 0 };
   tpc.cameraMinDistance = 0.1;
   let ocultaCerca = false;
   app.on('update', () => {
-    const d = tpc._clampedDistance; if (d === undefined || !tpc.enabled) return;
+    const d = tpc._clampedDistance; if (d === undefined || !ctrl.enabled || !tpc.enabled) return;
     const quiere = d < (ocultaCerca ? 0.7 : 0.6);
     if (quiere !== ocultaCerca) { ocultaCerca = quiere; for (const r of muneco.findComponents('render')) for (const mi of r.meshInstances) mi.visible = !quiere; }
   });
@@ -968,7 +971,10 @@ const pide = { x: 0, z: 0, t: 0 };
   tpc.update = function (dt) { sysR.raycastFirst = rayoSuelo; try { return upd.call(this, dt); } finally { sysR.raycastFirst = rayo0; } };
 }
 app.on('update', (dt) => {
-  if (alivio) { alivio *= Math.exp(-dt / 0.08); if (Math.abs(alivio) < 0.003) alivio = 0; muneco.setLocalPosition(0, -1 + alivio, 0); }
+  if (alivio) {
+    if (!ctrl.enabled) { alivio = 0; alivioCam = 0; }
+    else { alivio *= Math.exp(-dt / 0.08); if (Math.abs(alivio) < 0.003) alivio = 0; muneco.setLocalPosition(0, -1 + alivio, 0); }
+  }
   alivioCam = alivio; // (la cámara ya está puesta con la cápsula de antes de lo que se suba ahora: baja lo de antes)
   const pidiendo = performance.now() - pide.t < 120;
   // (parada y montada en un canto —un bordillo, un peldaño, el umbral de una puerta—, con el suelo de debajo más de 4 cm por
@@ -1106,10 +1112,13 @@ if (escena.vida && q.get('vida') !== '0') {
   const centro = await (await fetch(escena.vida.replace('vida.json', 'centro.json'))).json();
   trasListo.then(() => montarAnimales({ app, vida, centro, carpeta: escena.vida.replace('vida.json', ''), glb, ctrl, sonido, q })).then((a) => { if (window.foto) window.foto.animales = a; });
   montarDinamicas({ app, vida, ctrl, q }).then((d) => { if (window.foto) window.foto.dinamicas = d; else trasListo.then(() => { if (window.foto) window.foto.dinamicas = d; }); });   // (llegaba antes de existir window.foto)
-  trasListo.then(() => montarCoches({ app, vida, carpeta: escena.vida.replace('vida.json', ''), glb, camara, q, movil })).then((c) => {
+  const carpetaEscena = escena.vida.replace('vida.json', '');
+  const cuerpoCoche = chica ? montarCuerpoCoche({ app, q, ctrl, muneco, mi, pista, glb, carpeta: carpetaEscena, carpetaChica: escena.chica }) : null;
+  if (window.foto) window.foto.cuerpoCoche = cuerpoCoche; else trasListo.then(() => { if (window.foto) window.foto.cuerpoCoche = cuerpoCoche; });
+  trasListo.then(() => montarCoches({ app, vida, carpeta: carpetaEscena, glb, camara, q, movil })).then((c) => {
     if (window.foto) window.foto.coches = c;
     // (subirse a un coche aparcado y conducirlo: src/conducir.js)
-    try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: escena.vida.replace('vida.json', ''), glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null }); if (window.foto) window.foto.conducir = k; }
+    try { const k = montarConducir({ app, q, ctrl, muneco, tpc, camara, coches: c, cajas: cajasCoches, carpeta: carpetaEscena, glb, post, movil, sonido, compactar: q.get('compactar') !== '0' ? compactar : null, cuerpoCoche }); if (window.foto) window.foto.conducir = k; }
     catch (e) { console.warn('conducir:', e); }
     // (los contenedores de escombros de las obras, en el sitio de cuatro coches: src/obras.js)
     try { const o = ponerObras({ app, coches: c, q }); if (window.foto) window.foto.obras = o; } catch (e) { console.warn('obras:', e); }
@@ -1126,7 +1135,7 @@ if (escena.vida && q.get('vida') !== '0') {
   // src/multi_figuras.js)
   if (chica && vida) trasListo.then(() => { try { const m = montarMulti({ app, q, escena: nombre, ctrl, muneco, tpc, camara, reloj, vida, personaje: mio ? null : A.personaje,
     clips: { Quieto: A.quieto, Andar: A.andar, Correr: A.correr, Saltar: A.saltar }, movil, desde388: q.get('desde') === '388', mio: !!mi, estadoMio: mi?.estado || null, glb,
-    pueblo: escena.pueblo, salida, inicioDeSerie, iglesia: escena.dentro?.nombre, carpetas: { coches: escena.vida?.replace('vida.json', ''), chica: escena.chica } }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
+    pueblo: escena.pueblo, salida, inicioDeSerie, iglesia: escena.dentro?.nombre, carpetas: { coches: carpetaEscena, chica: escena.chica }, cuerpoCoche }); if (window.foto) window.foto.multi = m; } catch (e) { console.warn('multijugador:', e); } });
   // (la sombra de contacto bajo los pies de la chica y de los vecinos de cerca: src/sombras.js)
   if (modelo) { try { montarSombras({ app, muneco, ctrl, camara, gente: () => window.foto?.gente, reloj, q }); } catch (e) { console.warn('sombras de contacto:', e); } }
 }
@@ -1145,7 +1154,7 @@ let fpsSuave = 0;
 // empieza en ese escalón
 const NIVELES = [
   () => {}, // (0: todo)
-  (on) => { if (post) post.rendering.samples = on && !adaptar.dentro ? 1 : parseInt(q.get('msaa') || '4', 10); },   // (dentro del coche, el multimuestreo no se quita)
+  (on) => { if (post) post.rendering.samples = (on && (!adaptar.dentro || movil)) ? 1 : parseInt(q.get(movil ? 'msaamovil' : 'msaa') || (movil ? '1' : '4'), 10); },   // (dentro del coche en escritorio, el multimuestreo no se quita)
   (on) => { if (sol.light) sol.light.shadowResolution = on ? 2048 : parseInt(q.get('sres') || '4096', 10); },
   (on) => { if (post?.ssao) post.ssao.scale = on ? 0.35 : AO_ESCALA; },
   null, // (4: la resolución, por debajo de 1×)
@@ -1156,46 +1165,80 @@ const NIVELES = [
 ];
 // (la resolución que de verdad se dibuja: en una pantalla normal, de 1×, el tope de 1,5× no hace nada)
 const ratio = () => Math.min(device.maxPixelRatio, window.devicePixelRatio || 1);
-const adaptar = { max: ratio(), t: 0, prueba: 0, espera: 10, probando: false, ms: [], nivel: 0, activo: q.get('adaptar') !== '0', dentro: false };
+const dprDentro = () => {
+  const nat = window.devicePixelRatio || 1;
+  return Math.min(nat, parseFloat(q.get('dprd') || q.get('dpr') || (movil ? '1.75' : '2')));
+};
+const adaptar = { max: ratio(), t: 0, prueba: 0, espera: 10, probando: false, ms: [], nivel: 0, activo: q.get('adaptar') !== '0', dentro: false, gracia: 0, nitidezAntes: null };
+const ponerRatio = (r, graciaMs = 1500) => {
+  device.maxPixelRatio = r;
+  app.resizeCanvas();
+  if (graciaMs > 0) { adaptar.gracia = Math.max(adaptar.gracia, performance.now() + graciaMs); adaptar.t = 0; adaptar.ms.length = 0; }
+};
 const ponerNivel = (n) => {
   n = Math.max(0, Math.min(NIVELES.length - 1, n));
   while (adaptar.nivel < n) { adaptar.nivel++; NIVELES[adaptar.nivel]?.(true); }
   while (adaptar.nivel > n) { NIVELES[adaptar.nivel]?.(false); adaptar.nivel--; }
-  const techo = adaptar.nivel && !adaptar.dentro ? Math.min(1, adaptar.max) : adaptar.max; // (con algo quitado, nunca por encima de 1×; dentro del coche, sí)
-  if (ratio() > techo + 0.01) { device.maxPixelRatio = techo; app.resizeCanvas(); }
+  const maxActual = adaptar.dentro ? dprDentro() : adaptar.max;
+  const techo = adaptar.nivel && !adaptar.dentro ? Math.min(1, adaptar.max) : maxActual; // (con algo quitado, fuera nunca por encima de 1×; dentro del coche, sí)
+  if (ratio() > techo + 0.01) ponerRatio(techo, 1500);
 };
-const ponerRatio = (r) => { device.maxPixelRatio = r; app.resizeCanvas(); };
 // la escalera, de arriba abajo: la resolución hasta 1×, los escalones 1 a 4, la resolución hasta 0,7× y el escalón 5;
 // para subir, lo mismo al revés
 const bajar = (paso) => {
   const r = ratio(), n = adaptar.nivel, uno = Math.min(1, adaptar.max);
-  // (dentro del coche: primero la resolución hasta 1×, luego la sombra y la oclusión; el multimuestreo y la resolución por
-  // debajo de 1×, no: son lo que quita los dientes de sierra del salpicadero y los montantes)
-  if (adaptar.dentro) { if (r > uno + 0.01) ponerRatio(Math.max(uno, r - paso)); else if (n < 3) ponerNivel(Math.max(2, n + 1)); else if (n < 5) ponerNivel(5); return; }
+  // (dentro del coche: en escritorio Retina mantenemos al menos 1,5× antes de bajar sombra/oclusión, y nunca quitamos MSAA ni
+  // bajamos de 1×; en móvil bajamos con suavidad hacia 1,25× sin caer a 0,7×, manteniendo nítido el salpicadero)
+  if (adaptar.dentro) {
+    const suelo = movil ? Math.min(dprDentro(), 1.25) : Math.min(dprDentro(), 1.5);
+    if (r > suelo + 0.01) ponerRatio(Math.max(suelo, r - paso), 1800);
+    else if (n < 3) ponerNivel(Math.max(2, n + 1));
+    else if (!movil && r > uno + 0.01) ponerRatio(Math.max(uno, r - paso), 1800);
+    else if (n < 5) ponerNivel(5);
+    return;
+  }
   if (n === 0 && r > uno + 0.01) ponerRatio(Math.max(uno, r - paso));
   else if (n < 4) ponerNivel(n + (paso > 0.2 && n < 3 ? 2 : 1));
   else if (n === 4 && r > 0.71) ponerRatio(Math.max(0.7, r - paso));
   else if (n === 4) ponerNivel(5);
 };
 const subir = () => {
-  const r = ratio(), n = adaptar.nivel, uno = Math.min(1, adaptar.max);
+  const r = ratio(), n = adaptar.nivel, uno = Math.min(1, adaptar.max), maxActual = adaptar.dentro ? dprDentro() : adaptar.max;
+  if (adaptar.dentro) {
+    if (r < maxActual - 0.01) ponerRatio(Math.min(maxActual, r + 0.125), 1800);
+    else if (!movil && n > 0) ponerNivel(n - 1);
+    return;
+  }
   if (n === 5) ponerNivel(4);
   else if (n === 4 && r < uno - 0.01) ponerRatio(Math.min(uno, r + 0.125));
   else if (n > 0) ponerNivel(n - 1);
   else if (r < adaptar.max - 0.01) ponerRatio(Math.min(adaptar.max, r + 0.125));
 };
 if (q.get('nivel') || movil) ponerNivel(parseInt(q.get('nivel') || '3', 10));
-// la vista de dentro del coche, con toda la resolución y el multimuestreo (22-11-2026; el usuario: «cuando conduzcas por
-// dentro… se ven el chasis del coche muy pixelado, mejora la resolución por dentro»): de cerca, el salpicadero, el techo y
-// los montantes, a 1× en una pantalla Retina y sin multimuestreo, salían con escalones de dos píxeles. Al entrar, la
-// resolución sube a su tope (?dpr, 1,5× de serie) y vuelve el multimuestreo; si no llega a 55 fps, baja la resolución
-// hasta 1× y quita sombra y oclusión, pero no el multimuestreo. Al salir, lo de antes. En el móvil, nada (su memoria no da).
+// la vista de dentro del coche, con salpicadero nítido en escritorio Retina y en móvil:
+// - en escritorio Retina (2×), sube la resolución hasta dprDentro() (2× de serie, sin espiral de bajada por el propio
+//   cambio de lienzo gracias a la ventana de gracia) y asegura MSAA 4×;
+// - en móvil, sin activar MSAA 4× (para no disparar la VRAM), sube el render interior a 1,75× (p. ej. 682×1477 en 390×844
+//   3×) y ajusta la nitidez sin TAA (0,45 en vez de 1,0, que sin TAA marcaba dientes de sierra).
+// Al volver fuera o bajarse, restaura exactamente resolución, muestras y nitidez anteriores.
 const calidadDentro = (on) => {
-  if (movil || !post || on === adaptar.dentro) return;
+  if (!post || on === adaptar.dentro) return;
   adaptar.dentro = on; adaptar.t = 0; adaptar.ms.length = 0; adaptar.prueba = 0; adaptar.probando = false;
-  const msaa = parseInt(q.get('msaa') || '4', 10);
-  if (on) { post.rendering.samples = msaa; if (ratio() < adaptar.max - 0.01) ponerRatio(adaptar.max); }
-  else { post.rendering.samples = adaptar.nivel >= 1 ? 1 : msaa; const techo = adaptar.nivel ? Math.min(1, adaptar.max) : adaptar.max; if (ratio() > techo + 0.01) ponerRatio(techo); }
+  adaptar.gracia = performance.now() + 2500;
+  const msaa = parseInt(q.get(movil ? 'msaamovil' : 'msaa') || (movil ? '1' : '4'), 10);
+  const nitDentro = parseFloat(q.get('nitidezdentro') || q.get('nitidez') || '0.45');
+  if (on) {
+    if (adaptar.nitidezAntes === null) adaptar.nitidezAntes = post.rendering.sharpness;
+    post.rendering.sharpness = nitDentro;
+    if (!movil || msaa > 1) post.rendering.samples = msaa;
+    const obj = dprDentro();
+    if (Math.abs(ratio() - obj) > 0.01) ponerRatio(obj, 2500);
+  } else {
+    if (adaptar.nitidezAntes !== null) { post.rendering.sharpness = adaptar.nitidezAntes; adaptar.nitidezAntes = null; }
+    post.rendering.samples = adaptar.nivel >= 1 ? 1 : parseInt(q.get('msaa') || '4', 10);
+    const techo = adaptar.nivel ? Math.min(1, adaptar.max) : adaptar.max;
+    if (Math.abs(ratio() - techo) > 0.01) ponerRatio(techo, 1500);
+  }
 };
 // (no mira hasta que el juego se ha asentado: 6 s después de estar listo y, entrando desde la web de 388, después de posarse
 // la cámara. Antes, los fotogramas de la carga y del vuelo de la entrada, lentos por lo que aún se monta, le hacían bajar
@@ -1208,7 +1251,7 @@ const asentado = () => {
   return tiempos.listo !== undefined && performance.now() > t0 + tiempos.listo + 6000;
 };
 app.on('update', (dt) => {
-  if (adaptar.activo && asentado()) {
+  if (adaptar.activo && asentado() && performance.now() >= adaptar.gracia) {
     adaptar.ms.push(dt * 1000); adaptar.t += dt;
     if (adaptar.t > 1.5) {
       // (con la pantalla a 60 Hz cada fotograma tarda 16,7 o 33 ms: la mediana no ve los que se pierden; lo que cuenta es
@@ -1303,7 +1346,7 @@ window.foto = {
     return { min: lo.map((v) => Math.round(v * 10) / 10), max: hi.map((v) => Math.round(v * 10) / 10), splats: A.splat.resource.gsplatData?.numSplats };
   },
   resolucion: () => { const b = app.graphicsDevice.backBufferSize; return [b.x, b.y]; },
-  calidad: () => ({ nivel: adaptar.nivel, ratio: ratio(), fps: Math.round(fpsSuave), dentro: adaptar.dentro, muestras: post?.rendering?.samples }),
+  calidad: () => ({ nivel: adaptar.nivel, ratio: ratio(), dprMax: adaptar.dentro ? dprDentro() : adaptar.max, fps: Math.round(fpsSuave), dentro: adaptar.dentro, muestras: post?.rendering?.samples, nitidez: post?.rendering?.sharpness }),
   calidadDentro,
   zonas: () => zonas && { cargadas: zonas.cargadas(), total: zonas.Z.zonas.length, radio: zonas.radio }, // (la calidad adaptable, para tools/lento.py)
   // (para la entrada, src/desde388.js: dibujar con o sin multimuestreo, para dejar preparado lo de los dos y que la

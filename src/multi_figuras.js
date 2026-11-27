@@ -8,6 +8,7 @@
 // - Si aquí se juega con el personaje propio, la chica de serie y sus animaciones se bajan al hacer falta (3 MB), y al
 //   revés: las animaciones del personaje del editor (0,5 MB).
 import { Asset, BLEND_NONE, Entity } from 'playcanvas';
+import { clipCocheListo } from './asiento_coche.js';
 import { brazoSaludo } from './gestos.js';
 import { montarPersonaje } from './personaje.js';
 
@@ -44,12 +45,8 @@ export function montarFiguras({ app, q, personaje, clips, mio, movil, glb, carpe
   const juego = (ruta, cuerpo) => Promise.all([cuerpo ? cargar(ruta + cuerpo) : null, ...['quieto', 'andar', 'correr', 'saltar'].map((x) => cargar(ruta + x + '.glb'))])
     .then(([c, Quieto, Andar, Correr, Saltar]) => ({ personaje: c, clips: { Quieto, Andar, Correr, Saltar } }));
   // (las posturas de ir en coche, una por modelo de coche —conduciendo_<tipo>, copiloto_<tipo>: tools/blender/chica_coche.py—,
-  // se bajan la primera vez que hacen falta: unos 110 kB cada una)
-  const enCoche = {};
-  const clipCoche = (nombre) => {
-    if (enCoche[nombre] === undefined) { enCoche[nombre] = null; cargar(carpetaChica + nombre + '.glb').then((a) => { enCoche[nombre] = a || false; }); }
-    return enCoche[nombre] || null;
-  };
+  // compartidas con src/asiento_coche.js para descargarlas una sola vez)
+  const clipCoche = (nombre) => clipCocheListo({ app, glb, carpetaChica, nombre });
   // (lo de cada clase de figura: lo de aquí si es la misma con la que se juega; si no, se baja la primera vez)
   const recursos = { chica: mio ? null : { personaje, clips }, propio: mio ? { clips } : null };
   const pidiendo = {};
@@ -92,7 +89,8 @@ export function montarFiguras({ app, q, personaje, clips, mio, movil, glb, carpe
       sentar(estado, nombre) {
         const a = clipCoche(nombre); if (!a) return false;
         if (f.clipCoche?.[estado] !== nombre) {
-          let t = pista(a); if (t && mi) t = mi.pista(t, {}); if (!t) return false;
+          const t = mi?.retargetar ? mi.retargetar(a) : (mi ? mi.pista(pista(a), {}) : pista(a));
+          if (!t) return false;
           capa.assignAnimation(estado, t, 1, true); puestos.add(estado); (f.clipCoche ||= {})[estado] = nombre;
           if (f.estado === estado) f.estado = null; // (otro coche, la misma postura: que entre la nueva)
         }
