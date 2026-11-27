@@ -95,7 +95,7 @@ MODELOS.guarena = { ...MODELOS.malfeitos_gris, modelo: './escenas/guarena/guaren
   iglesiaBancos: './escenas/guarena/iglesia_bancos.json', // (sus bancos de forja, para sentarse: abajo)
   dentro: { glb: './escenas/guarena/iglesia_dentro.glb', centro: [-271.4, 165.2], radio: 120, suelta: 260, nombre: 'la iglesia de Santa María', // (el interior de la iglesia, aparte: se carga al acercarse)
     canto: './escenas/guarena/canto_iglesia.m4a', planta: './escenas/guarena/iglesia_planta.json' }, // (y el canto gregoriano, que suena solo dentro: src/canto.js)
-  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [900000, 2600000], // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras)
+  partes: ['./escenas/guarena/materiales.glb', './escenas/guarena/lejos.glb', './escenas/guarena/iglesia.glb'], caras: [850000, 1150000], radio: [140, 190], sueltaExtra: 40, // (los tejados y el detalle de la calle van en las zonas, que se cargan hasta un tope de caras y radio acotado; más allá se ve lejos.glb)
   colisiones: ['./escenas/guarena/iglesia_colision.glb'], // (la iglesia de Santa María, entera y siempre a la vista, con su colisión: docs/iglesia.md)
   relieve: './escenas/guarena/relieve.json', // (las cuestas de verdad, al dibujar: src/relieve.js)
   gente: './escenas/guarena/gente/', iglesiaSitios: './escenas/guarena/iglesia_sitios.json', // (los vecinos por la calle según la hora: src/gente.js)
@@ -279,7 +279,8 @@ const bajarGlb = async (u) => { // (un .glb, entero o en trozos —window.TROZOS
 const iZ = (fin) => (escena.partes || []).findIndex((p) => p.endsWith(fin));
 // (las zonas: cuáles, hasta dónde y cómo se traen —se bajan y se leen—; «La escena por zonas», más abajo, las monta)
 const ZC = modelo && escena.zonas && iZ('/materiales.glb') >= 0 ? (() => {
-  const radio = parseFloat(q.get('radio') || (movil ? '160' : '330')), suelta = radio + 80, todas = q.get('zonas') === '0';
+  const radioDef = Array.isArray(escena.radio) ? escena.radio[movil ? 0 : 1] : (movil ? 160 : 330);
+  const radio = parseFloat(q.get('radio') || String(radioDef)), suelta = radio + (escena.sueltaExtra || 80), todas = q.get('zonas') === '0';
   // (al empezar, solo las zonas de alrededor de la salida: las de más allá se ven de lejos con lejos.glb y llegan luego, de
   // una en una. Con todas las del radio había que bajar 60 MB de zonas antes del primer fotograma; con estas, unos 24.
   // ?radio0= lo cambia; ?radio0=0, como antes)
@@ -522,7 +523,9 @@ for (const a of [A.colision, ...(modelo && escena.colisiones ? escena.colisiones
 // (y, en la 166, las puertas y portones de madera, las persianas, los cierres de tijera, el aluminio, los bajantes, los
 // contadores y los faroles: van metidos en su hueco o son finos, y su sombra no se ve; Malfeitos llegaba a 1.245 llamadas)
 const SIN_SOMBRA = /^(churretes|mancha|lavada|parche|suciedad|desconchon|grieta|cristal|cierre|basculante_\w+|vidrio_claro|madera_\w+|persiana_\w+|tijera|malla|aluminio|zinc|contador|farol|cartel_pegado|recercado_\w+|carpinteria|zocalo_placas|glass(\.\d+)?|bump_front_ok(\.\d+)?|detalle|imperfeccion|cable|pintura_\w+|rotulo_\w+|placa_\w+|emblema_correos)$/;
-const sinSombra = (n) => q.get('sombras') !== 'todas' && SIN_SOMBRA.test(n || '');
+const SIN_SOMBRA_GUARENA = /^(r_glass\.\d+|carpinteria_madera|naranja|tapa|bacheo|imbornal|aceite|rodadura|polvo|mancha_suelo)$/;
+const SIN_SOMBRA_GRUPO_GUARENA = /^z_(calle|suelo|detalles_pueblo|imperf_pueblo)_/;
+const sinSombra = (n) => q.get('sombras') !== 'todas' && (SIN_SOMBRA.test(n || '') || (nombre === 'guarena' && SIN_SOMBRA_GUARENA.test(n || '')));
 const instancias = new Map(); // (cada .glb de la calle y su entidad: las texturas se unen entre ellos y las zonas los usan)
 if (A.modelo) {
   // el modelo: se ve, da y recibe sombra; si no trae una colisión aparte (la de malfeitos_gris sí, ligera), cada malla
@@ -1524,10 +1527,10 @@ if (escena.dentro && q.get('dentro') !== '0') {
   });
 }
 // ---- La escena por zonas (docs/zonas.md): las paredes y fachadas de cada celda de 200 m van en su .glb, sin imágenes; se
-// cargan las que quedan a menos de RADIO de la cámara (?radio=, 180 m en el móvil y 330 en el resto) y se sueltan las que
-// se alejan 80 m más; donde no hay zona cargada se ve la caja lisa de cada casa, con su color (lejos.glb). Las mallas de
-// cada zona toman el material del mismo nombre de materiales.glb (con la oclusión horneada y sus imágenes, una vez).
-// ?zonas=0 las carga todas
+// cargan las que quedan a menos de RADIO de la cámara (?radio=, 160 m en el móvil y 330 en el resto, o escena.radio; en
+// Guareña 140/190 m con tope de caras) y se sueltan al alejarse más allá de suelta (radio + 80 m, o escena.sueltaExtra);
+// donde no hay zona cargada se ve la caja lisa de cada casa, con su color (lejos.glb). Las mallas de cada zona toman el
+// material del mismo nombre de materiales.glb (con la oclusión horneada y sus imágenes, una vez). ?zonas=0 las carga todas
 let zonas = null;
 if (ZC) {
   const { radio, suelta, todas, dist, hasta, traer, ya } = ZC, Z = await ZC.Zp;
@@ -1536,29 +1539,72 @@ if (ZC) {
   instancias.get(A['parte' + iZ('/lejos.glb')])?.findComponents('render').forEach((r) => lejos.set(r.entity.name, r));
   // (las cajas de lejos, con los materiales de materiales.glb: lejos.glb ya no trae imágenes, eran las mismas; cargar
   // antes, 13-11-2026. Con uno de antes, que no las tiene allí, se queda con las suyas)
-  for (const r of lejos.values()) for (const mi of r.meshInstances) { const m = porNombre.get(mi.material?.name); if (m) mi.material = m; }
-  const estado = new Map(); // (clave → 'cargando' o {e, asset})
+  for (const r of lejos.values()) for (const mi of r.meshInstances) {
+    const m = porNombre.get(mi.material?.name); if (m) mi.material = m;
+    if (nombre === 'guarena' && q.get('sombras') !== 'todas') mi.castShadow = false; // (cajas lejanas >150 m: fuera del alcance de sombra)
+  }
+  const estado = new Map(); // (clave → 'cargando' o {e, asset, detalles})
   const falsa = (b) => { if (b?.storage) b.storage = { byteLength: b.storage.byteLength }; }; // (sin la copia de JavaScript; destroy() aún mira su tamaño)
+  const topeDetalleZona = (n) => {
+    if (nombre !== 'guarena' || q.get('detalles_zona') === '0') return 0;
+    if (/^z_(detalles_pueblo|imperf_pueblo)_/.test(n)) return 65;
+    if (/^z_suelo_/.test(n)) return 110;
+    if (/^z_(objetos|senales_sueltas)_/.test(n)) return 140;
+    return 0;
+  };
+  const actualizarDetalles = (c) => {
+    const cx = c.x, cz = c.z;
+    for (const s of estado.values()) {
+      if (!s || s === 'cargando' || !s.detalles.length) continue;
+      for (let i = 0; i < s.detalles.length; i++) {
+        const d = s.detalles[i];
+        const dx = cx < d.x0 ? d.x0 - cx : cx > d.x1 ? cx - d.x1 : 0;
+        const dz = cz < d.z0 ? d.z0 - cz : cz > d.z1 ? cz - d.z1 : 0;
+        d.r.enabled = dx * dx + dz * dz < d.tope2;
+      }
+    }
+  };
   const cargar = async (z) => {
     estado.set(z.clave, 'cargando');
     try {
       const pedida = ya.get(z.clave); ya.delete(z.clave); // (las de la salida, pedidas y leídas mientras llegaba lo demás)
       const asset = await (pedida || traer(z));
       const e = asset.resource.instantiateRenderEntity({ castShadows: true, receiveShadows: true });
-      let sin = 0; const trabajos = [], vistas = new Set();
-      for (const r of e.findComponents('render')) for (const mi of r.meshInstances) {
-        const m = porNombre.get(mi.material?.name); if (m) mi.material = m; else sin++;
-        if (sinSombra(mi.material?.name)) mi.castShadow = false;
-        if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
-        // (compactada en un hilo aparte, y la zona entra en la escena cuando están todas: ver compactarEnHilo)
-        const m_ = mi.mesh, soltar_ = () => { if (q.get('soltar') !== '0') { falsa(m_.vertexBuffer); (m_.indexBuffer || []).forEach(falsa); } };
-        trabajos.push(q.get('compactar') !== '0' ? compactarEnHilo(m_).then(soltar_) : Promise.resolve(soltar_()));
+      let sin = 0; const trabajos = [], vistas = new Set(), pendDetalles = [];
+      for (const r of e.findComponents('render')) {
+        const sinGrupo = nombre === 'guarena' && q.get('sombras') !== 'todas' && SIN_SOMBRA_GRUPO_GUARENA.test(r.entity.name);
+        const topeD = topeDetalleZona(r.entity.name);
+        if (topeD) pendDetalles.push({ r, tope: topeD });
+        for (const mi of r.meshInstances) {
+          const m = porNombre.get(mi.material?.name); if (m) mi.material = m; else sin++;
+          if (sinGrupo || sinSombra(mi.material?.name)) mi.castShadow = false;
+          if (vistas.has(mi.mesh)) continue; vistas.add(mi.mesh);
+          // (compactada en un hilo aparte, y la zona entra en la escena cuando están todas: ver compactarEnHilo)
+          const m_ = mi.mesh, soltar_ = () => { if (q.get('soltar') !== '0') { falsa(m_.vertexBuffer); (m_.indexBuffer || []).forEach(falsa); } };
+          trabajos.push(q.get('compactar') !== '0' ? compactarEnHilo(m_).then(soltar_) : Promise.resolve(soltar_()));
+        }
       }
       await Promise.all(trabajos);
       if (sin) console.warn(`zona ${z.clave}: ${sin} mallas sin su material en materiales.glb`);
       raiz.addChild(e);
-      estado.set(z.clave, { e, asset });
+      const detalles = [];
+      for (let i = 0; i < pendDetalles.length; i++) {
+        const { r, tope } = pendDetalles[i];
+        r.entity.getWorldTransform();
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (let j = 0; j < r.meshInstances.length; j++) {
+          const b = r.meshInstances[j]?.aabb; if (!b) continue;
+          const bc = b.center, bh = b.halfExtents;
+          if (bc.x - bh.x < x0) x0 = bc.x - bh.x;
+          if (bc.x + bh.x > x1) x1 = bc.x + bh.x;
+          if (bc.z - bh.z < z0) z0 = bc.z - bh.z;
+          if (bc.z + bh.z > z1) z1 = bc.z + bh.z;
+        }
+        if (x0 <= x1) detalles.push({ r, tope2: tope * tope, x0, x1, z0, z1 });
+      }
+      estado.set(z.clave, { e, asset, detalles });
       const l = lejos.get(z.lejos); if (l) l.enabled = false;
+      if (detalles.length) actualizarDetalles(camara.getPosition());
     } catch (err) { console.warn('zona', z.clave, err); estado.delete(z.clave); }
   };
   const soltarZona = (z) => {
@@ -1579,9 +1625,13 @@ if (ZC) {
   await repasar(ZC.inicio, true);
   for (const t of ya.values()) t.then((a) => { a.unload(); app.assets.remove(a); }).catch(() => {}); // (si sobrara alguna pedida, fuera)
   ya.clear();
-  app.on('update', () => { if ((cuenta++ & 31) === 0) repasar(camara.getPosition(), false); });
+  app.on('update', () => {
+    const c_ = cuenta++;
+    if ((c_ & 7) === 0 && nombre === 'guarena') actualizarDetalles(camara.getPosition());
+    if ((c_ & 31) === 0) repasar(camara.getPosition(), false);
+  });
   // (cargarEn: las de alrededor de un sitio, a la vez, como al empezar; para ir de golpe a otro sitio: foto.irA)
-  zonas = { estado, Z, radio, cargadas: () => [...estado.keys()], cargarEn: async (p) => { while (ocupado) await new Promise((r) => setTimeout(r, 50)); await repasar(p, true); } };
+  zonas = { estado, Z, radio, cargadas: () => [...estado.keys()], cargarEn: async (p) => { while (ocupado) await new Promise((r) => setTimeout(r, 50)); await repasar(p, true); if (nombre === 'guarena') actualizarDetalles(camara.getPosition()); } };
   tiempos.zonas = estado.size;
 }
 for (const u of Object.values(mem)) if (u.startsWith('blob:')) URL.revokeObjectURL(u); // (los archivos bajados, ya leídos)
